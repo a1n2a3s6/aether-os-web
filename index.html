@@ -1,0 +1,2565 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AetherOS — Browser Desktop Environment</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+          },
+          colors: {
+            aether: {
+              bg: '#070a12',
+              panel: 'rgba(15, 20, 34, 0.72)',
+              border: 'rgba(255, 255, 255, 0.11)',
+              accent: '#38bdf8',
+              violet: '#818cf8',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Base Reset & OS Lock */
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #070a12;
+      color: #f1f5f9;
+      font-family: 'Inter', system-ui, sans-serif;
+      user-select: none;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.28);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.48);
+    }
+
+    /* Glassmorphism Utilities */
+    .glass-bar {
+      background: rgba(10, 14, 26, 0.65);
+      backdrop-filter: blur(20px) saturate(160%);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+    }
+
+    .glass-dock {
+      background: rgba(15, 23, 42, 0.58);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    }
+
+    .glass-window {
+      background: rgba(13, 18, 32, 0.84);
+      backdrop-filter: blur(24px) saturate(170%);
+      -webkit-backdrop-filter: blur(24px) saturate(170%);
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    }
+
+    .glass-window.focused {
+      border-color: rgba(56, 189, 248, 0.35);
+      box-shadow: 0 28px 75px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(56, 189, 248, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    }
+
+    /* Window Animations */
+    .os-window {
+      transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease, box-shadow 0.2s ease;
+      will-change: transform, opacity;
+    }
+    .os-window.dragging,
+    .os-window.resizing {
+      transition: none !important;
+    }
+    .os-window.minimized {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(45vh) scale(0.45) !important;
+    }
+    .os-window.opening {
+      animation: winOpen 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    @keyframes winOpen {
+      from { opacity: 0; transform: scale(0.94) translateY(10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    /* Dock Hover Magnification */
+    .dock-item {
+      transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), margin 0.2s ease;
+      transform-origin: bottom center;
+    }
+    .dock-item:hover {
+      transform: translateY(-10px) scale(1.24);
+      margin-left: 6px;
+      margin-right: 6px;
+    }
+    .dock-item:hover + .dock-item,
+    .dock-item:has(+ .dock-item:hover) {
+      transform: translateY(-4px) scale(1.08);
+      margin-left: 2px;
+      margin-right: 2px;
+    }
+    .dock-tooltip {
+      opacity: 0;
+      transform: translate(-50%, 6px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      pointer-events: none;
+    }
+    .dock-item:hover .dock-tooltip {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    /* Boot Splash Progress */
+    @keyframes bootProgress {
+      0% { width: 0%; }
+      60% { width: 78%; }
+      100% { width: 100%; }
+    }
+    .boot-bar-fill {
+      animation: bootProgress 0.95s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
+    @keyframes pulseGlow {
+      0%, 100% { filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.55)); }
+      50% { filter: drop-shadow(0 0 28px rgba(129, 140, 248, 0.85)); }
+    }
+    .aether-glow {
+      animation: pulseGlow 1.6s ease-in-out infinite;
+    }
+
+    /* Markdown Preview Styles */
+    .md-preview {
+      user-select: text;
+      line-height: 1.65;
+      color: #cbd5e1;
+    }
+    .md-preview h1 { font-size: 1.55rem; font-weight: 700; color: #f8fafc; margin: 0.75rem 0 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.35rem; }
+    .md-preview h2 { font-size: 1.25rem; font-weight: 600; color: #e2e8f0; margin: 0.9rem 0 0.45rem; }
+    .md-preview h3 { font-size: 1.05rem; font-weight: 600; color: #bae6fd; margin: 0.75rem 0 0.35rem; }
+    .md-preview p { margin: 0.5rem 0; }
+    .md-preview ul, .md-preview ol { margin: 0.5rem 0; padding-left: 1.4rem; }
+    .md-preview ul { list-style-type: disc; }
+    .md-preview ol { list-style-type: decimal; }
+    .md-preview li { margin: 0.2rem 0; }
+    .md-preview code { background: rgba(56, 189, 248, 0.14); color: #7dd3fc; padding: 0.12rem 0.35rem; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.85em; }
+    .md-preview pre { background: rgba(2, 6, 23, 0.75); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.75rem; overflow-x: auto; margin: 0.65rem 0; }
+    .md-preview pre code { background: transparent; color: #e2e8f0; padding: 0; }
+    .md-preview blockquote { border-left: 3px solid #38bdf8; padding-left: 0.85rem; margin: 0.65rem 0; color: #94a3b8; font-style: italic; background: rgba(56,189,248,0.05); padding-top: 0.25rem; padding-bottom: 0.25rem; border-radius: 0 6px 6px 0; }
+    .md-preview hr { border: 0; border-top: 1px solid rgba(255,255,255,0.12); margin: 1rem 0; }
+    .md-preview a { color: #38bdf8; text-decoration: underline; }
+
+    /* Piano Keys */
+    .piano-white {
+      background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+      border: 1px solid #94a3b8;
+      border-radius: 0 0 6px 6px;
+      transition: background 0.06s ease, transform 0.06s ease;
+    }
+    .piano-white.active, .piano-white:active {
+      background: linear-gradient(180deg, #bae6fd 0%, #38bdf8 100%);
+      transform: translateY(2px);
+    }
+    .piano-black {
+      background: linear-gradient(180deg, #1e293b 0%, #020617 100%);
+      border: 1px solid #0f172a;
+      border-radius: 0 0 5px 5px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+      transition: background 0.06s ease, transform 0.06s ease;
+    }
+    .piano-black.active, .piano-black:active {
+      background: linear-gradient(180deg, #818cf8 0%, #4f46e5 100%);
+      transform: translateY(2px);
+    }
+
+    /* Selectable text inside terminal & inputs */
+    .selectable, input, textarea {
+      user-select: text;
+    }
+  </style>
+</head>
+<body class="relative w-full h-full overflow-hidden text-slate-100">
+
+  <!-- ==================== 1. BOOT SPLASH SCREEN ==================== -->
+  <div id="boot-splash" class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#050811] transition-opacity duration-500">
+    <div class="flex flex-col items-center gap-5">
+      <div class="aether-glow">
+        <svg width="72" height="72" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="bootGrad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#38bdf8"/>
+              <stop offset="50%" stop-color="#818cf8"/>
+              <stop offset="100%" stop-color="#c084fc"/>
+            </linearGradient>
+          </defs>
+          <rect x="4" y="4" width="56" height="56" rx="16" fill="rgba(56,189,248,0.1)" stroke="url(#bootGrad)" stroke-width="2.5"/>
+          <path d="M32 15L47 46H39.5L36.2 38.8H27.8L24.5 46H17L32 15ZM34.1 33.4L32 28.4L29.9 33.4H34.1Z" fill="url(#bootGrad)"/>
+          <circle cx="32" cy="15" r="2.5" fill="#e0f2fe"/>
+        </svg>
+      </div>
+      <div class="text-center">
+        <h1 class="text-2xl font-semibold tracking-wider text-white">Aether<span class="text-sky-400">OS</span></h1>
+        <p class="text-xs text-slate-400 mt-1 tracking-widest uppercase">Kernel v2.4 • Initializing Shell</p>
+      </div>
+      <div class="w-48 h-1.5 bg-slate-800/80 rounded-full overflow-hidden border border-white/10">
+        <div class="h-full bg-gradient-to-r from-sky-400 via-indigo-400 to-purple-400 rounded-full boot-bar-fill"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 2. ANIMATED WALLPAPER CANVAS ==================== -->
+  <canvas id="wallpaper-canvas" class="fixed inset-0 w-full h-full z-0 pointer-events-none"></canvas>
+
+  <!-- ==================== 3. TOP MENU BAR ==================== -->
+  <header id="top-bar" class="glass-bar fixed top-0 left-0 right-0 h-8 z-[900] px-3 flex items-center justify-between text-xs font-medium select-none">
+    <!-- Left: Logo & Active App -->
+    <div class="flex items-center gap-3 min-w-0">
+      <button id="aether-menu-btn" class="flex items-center gap-1.5 px-2 py-0.5 rounded-md hover:bg-white/10 transition-colors" title="AetherOS Menu">
+        <svg width="15" height="15" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <linearGradient id="navGrad" x1="0" y1="0" x2="64" y2="64">
+              <stop offset="0%" stop-color="#38bdf8"/>
+              <stop offset="100%" stop-color="#a855f7"/>
+            </linearGradient>
+          </defs>
+          <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#navGrad)" fill-opacity="0.2" stroke="url(#navGrad)" stroke-width="4"/>
+          <path d="M32 16L46 46H39L36 39H28L25 46H18L32 16ZM34 33.5L32 28.5L30 33.5H34Z" fill="#e0f2fe"/>
+        </svg>
+        <span class="font-semibold tracking-tight text-slate-100">AetherOS</span>
+      </button>
+      <span class="text-white/20">|</span>
+      <span id="active-app-label" class="text-sky-300 font-semibold truncate">Desktop</span>
+    </div>
+
+    <!-- Right: Wallpaper Switcher, Status & Live Clock -->
+    <div class="flex items-center gap-2 sm:gap-3">
+      <!-- Wallpaper Switcher -->
+      <div class="relative">
+        <button id="wallpaper-btn" class="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/15 border border-white/10 transition-colors text-slate-200">
+          <svg class="w-3.5 h-3.5 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+          <span id="wallpaper-label" class="hidden sm:inline">Aurora Dark</span>
+        </button>
+        <div id="wallpaper-dropdown" class="hidden absolute right-0 mt-1.5 w-44 rounded-xl glass-window p-1.5 shadow-2xl z-[950]">
+          <div class="px-2 py-1 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Wallpaper</div>
+          <button data-wp="aurora" class="wp-option w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-white/10 flex items-center justify-between text-slate-200">
+            <span>Aurora Dark</span>
+            <span class="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-sky-400 to-purple-500"></span>
+          </button>
+          <button data-wp="cyber" class="wp-option w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-white/10 flex items-center justify-between text-slate-200">
+            <span>Cyber Grid</span>
+            <span class="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-fuchsia-500 to-cyan-400"></span>
+          </button>
+          <button data-wp="ocean" class="wp-option w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-white/10 flex items-center justify-between text-slate-200">
+            <span>Deep Ocean</span>
+            <span class="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-teal-400 to-blue-700"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Status Indicators -->
+      <div class="hidden md:flex items-center gap-2 text-slate-300/80">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" title="Network Connected">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+        </svg>
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" title="Audio Ready">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+        </svg>
+      </div>
+
+      <!-- Live System Clock -->
+      <div id="system-clock" class="font-mono text-[11px] text-slate-200 tabular-nums px-1.5">00:00:00</div>
+    </div>
+  </header>
+
+  <!-- ==================== 4. DESKTOP WORKSPACE & SHORTCUTS ==================== -->
+  <main id="desktop" class="fixed inset-0 top-8 bottom-0 z-10 overflow-hidden">
+    <!-- Quick Desktop Shortcuts -->
+    <div id="desktop-icons" class="p-4 flex flex-col gap-3 w-fit">
+      <button data-desktop-open-file="/home/guest/welcome.md" class="desktop-shortcut group flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-white/10 focus:bg-white/15 transition-colors w-20 text-center">
+        <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-sky-500/30 to-indigo-600/30 border border-sky-400/30 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+          <svg class="w-6 h-6 text-sky-300" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+        </div>
+        <span class="text-[11px] font-medium text-slate-100 drop-shadow leading-tight">welcome.md</span>
+      </button>
+
+      <button data-desktop-open-app="files" class="desktop-shortcut group flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-white/10 focus:bg-white/15 transition-colors w-20 text-center">
+        <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400/25 to-orange-500/30 border border-amber-400/30 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+          <svg class="w-6 h-6 text-amber-300" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+          </svg>
+        </div>
+        <span class="text-[11px] font-medium text-slate-100 drop-shadow leading-tight">Home</span>
+      </button>
+
+      <button data-desktop-open-app="terminal" class="desktop-shortcut group flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-white/10 focus:bg-white/15 transition-colors w-20 text-center">
+        <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/25 to-teal-600/30 border border-emerald-400/30 flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform">
+          <span class="font-mono font-bold text-emerald-300 text-base">&gt;_</span>
+        </div>
+        <span class="text-[11px] font-medium text-slate-100 drop-shadow leading-tight">Terminal</span>
+      </button>
+    </div>
+
+    <!-- Window Layer -->
+    <div id="window-layer" class="absolute inset-0 pointer-events-none"></div>
+  </main>
+
+  <!-- Drag/Resize Event Shield (prevents canvases or inner elements from breaking drags) -->
+  <div id="drag-shield" class="fixed inset-0 z-[9990] hidden cursor-grabbing"></div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed top-11 right-4 z-[950] flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ==================== 5. BOTTOM MACOS-STYLE DOCK ==================== -->
+  <nav id="dock-wrapper" class="fixed bottom-3 left-1/2 -translate-x-1/2 z-[900] max-w-[96vw]">
+    <div id="dock" class="glass-dock px-3 py-2 rounded-2xl flex items-end gap-2.5 sm:gap-3">
+      <!-- Dock items injected dynamically by Dock controller -->
+    </div>
+  </nav>
+
+  <!-- ==================== 6. CORE OS & APPS JAVASCRIPT ==================== -->
+  <script>
+    (() => {
+      'use strict';
+
+      /* =====================================================================
+         SECTION 1: EVENT BUS & UTILITIES
+         ===================================================================== */
+      const EventBus = {
+        listeners: {},
+        on(event, fn) {
+          if (!this.listeners[event]) this.listeners[event] = new Set();
+          this.listeners[event].add(fn);
+          return () => this.off(event, fn);
+        },
+        off(event, fn) {
+          if (this.listeners[event]) this.listeners[event].delete(fn);
+        },
+        emit(event, payload) {
+          if (this.listeners[event]) {
+            this.listeners[event].forEach(fn => {
+              try { fn(payload); } catch (err) { console.error(`[EventBus:${event}]`, err); }
+            });
+          }
+        }
+      };
+
+      const Utils = {
+        escapeHtml(str) {
+          return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        },
+        formatBytes(bytes) {
+          if (bytes < 1024) return `${bytes} B`;
+          if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+          return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        },
+        formatDate(ts) {
+          const d = new Date(ts || Date.now());
+          return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+                 d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        },
+        toast(message, type = 'info') {
+          const container = document.getElementById('toast-container');
+          if (!container) return;
+          const colors = {
+            info: 'border-sky-400/40 text-sky-200',
+            success: 'border-emerald-400/40 text-emerald-200',
+            error: 'border-rose-400/40 text-rose-200'
+          };
+          const el = document.createElement('div');
+          el.className = `glass-window px-3.5 py-2 rounded-xl text-xs font-medium border ${colors[type] || colors.info} shadow-xl transition-all duration-300 translate-x-6 opacity-0`;
+          el.textContent = message;
+          container.appendChild(el);
+          requestAnimationFrame(() => {
+            el.classList.remove('translate-x-6', 'opacity-0');
+          });
+          setTimeout(() => {
+            el.classList.add('translate-x-6', 'opacity-0');
+            setTimeout(() => el.remove(), 300);
+          }, 2600);
+        }
+      };
+
+      /* =====================================================================
+         SECTION 2: SHARED VIRTUAL FILESYSTEM (localStorage backed)
+         ===================================================================== */
+      const VFS_STORAGE_KEY = 'aetheros_vfs_v1';
+
+      function createDefaultTree() {
+        const now = Date.now();
+        return {
+          type: 'dir',
+          updatedAt: now,
+          children: {
+            home: {
+              type: 'dir',
+              updatedAt: now,
+              children: {
+                guest: {
+                  type: 'dir',
+                  updatedAt: now,
+                  children: {
+                    'welcome.md': {
+                      type: 'file',
+                      updatedAt: now,
+                      content: `# Welcome to AetherOS\n\nAetherOS is a self-contained **browser Desktop Operating System** running entirely in a single HTML file.\n\n## Included Applications\n- **Terminal (\`>_\`)**: Unix-style CLI with shared filesystem, command history, and \`neofetch\`.\n- **Files**: Visual file explorer with breadcrumbs and instant sync.\n- **CodePad**: Markdown & text editor with live split-screen preview.\n- **SynthWave**: Polyphonic Web Audio synthesizer with live oscilloscope.\n- **SysMon**: Real-time system telemetry and live process manager.\n\n## Try This\n1. Open **Terminal** and run \`neofetch\` or \`ls\`. \n2. Create a file using \`echo "Hello Aether" > hello.txt\`.\n3. Open it immediately in **Files** or run \`open hello.txt\`!\n\n> Tip: Press **Ctrl+S** (or **Cmd+S**) inside CodePad to save changes directly to persistent localStorage.`
+                    },
+                    'todo.txt': {
+                      type: 'file',
+                      updatedAt: now,
+                      content: `AetherOS Daily Checklist\n========================\n[x] Boot AetherOS Kernel v2.4\n[x] Switch wallpapers from the Top Menu Bar\n[ ] Run 'neofetch' in Terminal\n[ ] Play a synth melody in SynthWave\n[ ] Inspect & terminate a process in SysMon\n`
+                    },
+                    Documents: {
+                      type: 'dir',
+                      updatedAt: now,
+                      children: {
+                        'aether-specs.md': {
+                          type: 'file',
+                          updatedAt: now,
+                          content: `# AetherOS Technical Specifications\n\n- **Architecture**: Single-file HTML5 + Tailwind CSS + Modular Vanilla JS\n- **Window Manager**: Multi-window stacking, drag-shield, corner resize, dock minimize\n- **Storage**: Event-driven Virtual Filesystem persisted in \`localStorage\`\n- **Audio Engine**: Native Web Audio API (Polyphonic Oscillators + Biquad Low-Pass Filter + AnalyserNode)\n\n\`\`\`js\n// Event-driven filesystem sync\nEventBus.on('vfs:change', () => {\n  console.log('All open apps updated automatically!');\n});\n\`\`\``
+                        }
+                      }
+                    },
+                    Projects: {
+                      type: 'dir',
+                      updatedAt: now,
+                      children: {
+                        'readme.md': {
+                          type: 'file',
+                          updatedAt: now,
+                          content: `# Projects Directory\n\nStore your notes, code snippets, and markdown drafts here.\nEverything you save persists across page reloads.`
+                        }
+                      }
+                    },
+                    Notes: {
+                      type: 'dir',
+                      updatedAt: now,
+                      children: {
+                        'synth-chords.txt': {
+                          type: 'file',
+                          updatedAt: now,
+                          content: `SynthWave Keyboard Guide\n------------------------\nWhite Keys: A S D F G H J K L ;\nBlack Keys: W E   T Y U   O P\n\nTry a C Major chord: A + D + G\nTry an A Minor chord: H + K + E\nTry Sawtooth + Low-Pass Filter sweep for retro vibes!`
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        };
+      }
+
+      const VFS = {
+        root: null,
+        init() {
+          try {
+            const saved = localStorage.getItem(VFS_STORAGE_KEY);
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (parsed && parsed.type === 'dir' && parsed.children) {
+                this.root = parsed;
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('VFS load failed, restoring defaults', e);
+          }
+          this.root = createDefaultTree();
+          this.persist();
+        },
+        persist() {
+          try {
+            localStorage.setItem(VFS_STORAGE_KEY, JSON.stringify(this.root));
+          } catch (e) {
+            console.warn('VFS persist failed:', e);
+          }
+          EventBus.emit('vfs:change');
+        },
+        normalizePath(cwd, target) {
+          let raw = (target || '').trim();
+          if (!raw) return cwd || '/home/guest';
+          if (raw === '~') raw = '/home/guest';
+          else if (raw.startsWith('~/')) raw = '/home/guest/' + raw.slice(2);
+          const full = raw.startsWith('/') ? raw : `${cwd === '/' ? '' : cwd}/${raw}`;
+          const parts = full.split('/').filter(Boolean);
+          const resolved = [];
+          for (const part of parts) {
+            if (part === '.') continue;
+            if (part === '..') resolved.pop();
+            else resolved.push(part);
+          }
+          return '/' + resolved.join('/');
+        },
+        getParentAndName(absPath) {
+          const parts = absPath.split('/').filter(Boolean);
+          if (parts.length === 0) return { parent: null, name: '' };
+          const name = parts.pop();
+          const parentPath = '/' + parts.join('/');
+          return { parent: this.getNode(parentPath), parentPath, name };
+        },
+        getNode(absPath) {
+          const clean = this.normalizePath('/', absPath);
+          if (clean === '/') return this.root;
+          const parts = clean.split('/').filter(Boolean);
+          let curr = this.root;
+          for (const part of parts) {
+            if (!curr || curr.type !== 'dir' || !curr.children[part]) return null;
+            curr = curr.children[part];
+          }
+          return curr;
+        },
+        listDir(absPath) {
+          const node = this.getNode(absPath);
+          if (!node || node.type !== 'dir') return null;
+          return Object.entries(node.children).map(([name, item]) => ({
+            name,
+            path: absPath === '/' ? `/${name}` : `${absPath}/${name}`,
+            type: item.type,
+            size: item.type === 'file' ? (item.content || '').length : Object.keys(item.children || {}).length,
+            updatedAt: item.updatedAt || Date.now()
+          })).sort((a, b) => {
+            if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+            return a.name.localeCompare(b.name);
+          });
+        },
+        mkdir(absPath) {
+          const clean = this.normalizePath('/', absPath);
+          const { parent, name } = this.getParentAndName(clean);
+          if (!parent || parent.type !== 'dir') return { ok: false, error: 'Parent directory not found' };
+          if (!name || name.includes('/')) return { ok: false, error: 'Invalid folder name' };
+          if (parent.children[name]) return { ok: false, error: `Already exists: ${name}` };
+          parent.children[name] = { type: 'dir', updatedAt: Date.now(), children: {} };
+          parent.updatedAt = Date.now();
+          this.persist();
+          return { ok: true, path: clean };
+        },
+        writeFile(absPath, content = '') {
+          const clean = this.normalizePath('/', absPath);
+          const { parent, name } = this.getParentAndName(clean);
+          if (!parent || parent.type !== 'dir') return { ok: false, error: 'Parent directory not found' };
+          if (!name) return { ok: false, error: 'Invalid filename' };
+          if (parent.children[name] && parent.children[name].type === 'dir') {
+            return { ok: false, error: `Cannot overwrite directory: ${name}` };
+          }
+          parent.children[name] = { type: 'file', content: String(content), updatedAt: Date.now() };
+          parent.updatedAt = Date.now();
+          this.persist();
+          return { ok: true, path: clean };
+        },
+        touch(absPath) {
+          const existing = this.getNode(absPath);
+          if (existing) {
+            existing.updatedAt = Date.now();
+            this.persist();
+            return { ok: true, path: absPath };
+          }
+          return this.writeFile(absPath, '');
+        },
+        deleteNode(absPath) {
+          const clean = this.normalizePath('/', absPath);
+          if (clean === '/' || clean === '/home' || clean === '/home/guest') {
+            return { ok: false, error: 'Cannot delete protected system directory' };
+          }
+          const { parent, name } = this.getParentAndName(clean);
+          if (!parent || !parent.children[name]) return { ok: false, error: 'No such file or directory' };
+          delete parent.children[name];
+          parent.updatedAt = Date.now();
+          this.persist();
+          return { ok: true };
+        },
+        getAllFiles(startPath = '/home/guest', acc = []) {
+          const list = this.listDir(startPath) || [];
+          for (const item of list) {
+            if (item.type === 'file') acc.push(item.path);
+            else if (item.type === 'dir') this.getAllFiles(item.path, acc);
+          }
+          return acc;
+        }
+      };
+
+      /* =====================================================================
+         SECTION 3: ANIMATED WALLPAPER ENGINE (Aurora Dark, Cyber Grid, Deep Ocean)
+         ===================================================================== */
+      const WallpaperEngine = {
+        canvas: null,
+        ctx: null,
+        mode: localStorage.getItem('aetheros_wallpaper') || 'aurora',
+        rafId: null,
+        t: 0,
+        particles: [],
+        init() {
+          this.canvas = document.getElementById('wallpaper-canvas');
+          this.ctx = this.canvas.getContext('2d');
+          this.resize();
+          window.addEventListener('resize', () => this.resize());
+          this.initParticles();
+          this.setMode(this.mode, false);
+          this.loop();
+        },
+        resize() {
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          this.canvas.width = window.innerWidth * dpr;
+          this.canvas.height = window.innerHeight * dpr;
+          this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        },
+        initParticles() {
+          this.particles = Array.from({ length: 55 }, () => ({
+            x: Math.random(),
+            y: Math.random(),
+            r: 1 + Math.random() * 2.5,
+            vx: (Math.random() - 0.5) * 0.00025,
+            vy: -0.00015 - Math.random() * 0.00035,
+            phase: Math.random() * Math.PI * 2
+          }));
+        },
+        setMode(mode, save = true) {
+          this.mode = ['aurora', 'cyber', 'ocean'].includes(mode) ? mode : 'aurora';
+          if (save) localStorage.setItem('aetheros_wallpaper', this.mode);
+          const names = { aurora: 'Aurora Dark', cyber: 'Cyber Grid', ocean: 'Deep Ocean' };
+          const label = document.getElementById('wallpaper-label');
+          if (label) label.textContent = names[this.mode];
+        },
+        drawAurora(w, h, t) {
+          const ctx = this.ctx;
+          ctx.fillStyle = '#060913';
+          ctx.fillRect(0, 0, w, h);
+
+          // Soft ambient nebula blobs
+          const blobs = [
+            { x: w * (0.25 + 0.14 * Math.sin(t * 0.25)), y: h * (0.3 + 0.1 * Math.cos(t * 0.2)), r: Math.max(w, h) * 0.48, c1: 'rgba(14, 165, 233, 0.28)', c2: 'rgba(14, 165, 233, 0)' },
+            { x: w * (0.72 + 0.12 * Math.cos(t * 0.22)), y: h * (0.38 + 0.14 * Math.sin(t * 0.18)), r: Math.max(w, h) * 0.52, c1: 'rgba(139, 92, 246, 0.26)', c2: 'rgba(139, 92, 246, 0)' },
+            { x: w * (0.5 + 0.18 * Math.sin(t * 0.15 + 1.5)), y: h * (0.72 + 0.08 * Math.cos(t * 0.24)), r: Math.max(w, h) * 0.44, c1: 'rgba(16, 185, 129, 0.20)', c2: 'rgba(16, 185, 129, 0)' }
+          ];
+          ctx.globalCompositeOperation = 'screen';
+          for (const b of blobs) {
+            const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+            g.addColorStop(0, b.c1);
+            g.addColorStop(1, b.c2);
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, w, h);
+          }
+
+          // Flowing aurora ribbons
+          for (let layer = 0; layer < 3; layer++) {
+            ctx.beginPath();
+            const baseY = h * (0.28 + layer * 0.16);
+            ctx.moveTo(0, h);
+            for (let x = 0; x <= w; x += 28) {
+              const wave = Math.sin(x * 0.0032 + t * (0.45 + layer * 0.12) + layer * 1.7) * 52
+                         + Math.cos(x * 0.006 - t * 0.3 + layer) * 24;
+              ctx.lineTo(x, baseY + wave);
+            }
+            ctx.lineTo(w, h);
+            ctx.closePath();
+            const grad = ctx.createLinearGradient(0, baseY - 70, 0, baseY + 180);
+            const colors = [
+              ['rgba(56, 189, 248, 0.16)', 'rgba(56, 189, 248, 0)'],
+              ['rgba(168, 85, 247, 0.14)', 'rgba(168, 85, 247, 0)'],
+              ['rgba(45, 212, 191, 0.12)', 'rgba(45, 212, 191, 0)']
+            ][layer];
+            grad.addColorStop(0, colors[0]);
+            grad.addColorStop(1, colors[1]);
+            ctx.fillStyle = grad;
+            ctx.fill();
+          }
+          ctx.globalCompositeOperation = 'source-over';
+        },
+        drawCyber(w, h, t) {
+          const ctx = this.ctx;
+          const horizon = h * 0.46;
+
+          // Sky gradient
+          const sky = ctx.createLinearGradient(0, 0, 0, horizon);
+          sky.addColorStop(0, '#070414');
+          sky.addColorStop(0.65, '#190a36');
+          sky.addColorStop(1, '#3b0764');
+          ctx.fillStyle = sky;
+          ctx.fillRect(0, 0, w, horizon);
+
+          // Glowing retro sun
+          const sunR = Math.min(w, h) * 0.16;
+          const sunGrad = ctx.createLinearGradient(w / 2, horizon - sunR * 1.5, w / 2, horizon);
+          sunGrad.addColorStop(0, '#f472b6');
+          sunGrad.addColorStop(0.55, '#c084fc');
+          sunGrad.addColorStop(1, '#38bdf8');
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(w / 2, horizon - sunR * 0.25, sunR, Math.PI, 0);
+          ctx.fillStyle = sunGrad;
+          ctx.shadowColor = '#e879f9';
+          ctx.shadowBlur = 40;
+          ctx.fill();
+          ctx.restore();
+
+          // Ground
+          const ground = ctx.createLinearGradient(0, horizon, 0, h);
+          ground.addColorStop(0, '#120729');
+          ground.addColorStop(1, '#05040d');
+          ctx.fillStyle = ground;
+          ctx.fillRect(0, horizon, w, h - horizon);
+
+          // Perspective Grid Lines
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.28)';
+          ctx.lineWidth = 1;
+          const cx = w / 2;
+          const cols = 18;
+          for (let i = -cols; i <= cols; i++) {
+            ctx.beginPath();
+            ctx.moveTo(cx + i * 24, horizon);
+            ctx.lineTo(cx + i * 165, h);
+            ctx.stroke();
+          }
+
+          // Animated horizontal scrolling lines
+          const speed = (t * 0.45) % 1;
+          for (let i = 0; i < 16; i++) {
+            const p = (i + speed) / 16;
+            const y = horizon + Math.pow(p, 2.35) * (h - horizon);
+            ctx.strokeStyle = `rgba(232, 121, 249, ${0.12 + p * 0.42})`;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(w, y);
+            ctx.stroke();
+          }
+
+          // Horizon glow line
+          ctx.strokeStyle = 'rgba(244, 114, 182, 0.75)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, horizon);
+          ctx.lineTo(w, horizon);
+          ctx.stroke();
+        },
+        drawOcean(w, h, t) {
+          const ctx = this.ctx;
+          const bg = ctx.createLinearGradient(0, 0, 0, h);
+          bg.addColorStop(0, '#041d2e');
+          bg.addColorStop(0.5, '#061529');
+          bg.addColorStop(1, '#030816');
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          // Soft underwater caustic light rays from top
+          ctx.save();
+          ctx.globalCompositeOperation = 'screen';
+          for (let i = 0; i < 6; i++) {
+            const rx = w * (0.12 + i * 0.16) + Math.sin(t * 0.35 + i) * 45;
+            const rayW = 70 + (i % 3) * 35;
+            const grad = ctx.createLinearGradient(rx, 0, rx + 80, h * 0.85);
+            grad.addColorStop(0, 'rgba(45, 212, 191, 0.14)');
+            grad.addColorStop(0.6, 'rgba(14, 165, 233, 0.05)');
+            grad.addColorStop(1, 'rgba(14, 165, 233, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(rx - rayW * 0.4, 0);
+            ctx.lineTo(rx + rayW * 0.4, 0);
+            ctx.lineTo(rx + rayW * 1.9, h * 0.9);
+            ctx.lineTo(rx - rayW * 0.7, h * 0.9);
+            ctx.closePath();
+            ctx.fill();
+          }
+
+          // Drifting bioluminescent particles
+          for (const p of this.particles) {
+            p.x += p.vx;
+            p.y += p.vy;
+            if (p.y < -0.05) { p.y = 1.05; p.x = Math.random(); }
+            if (p.x < 0) p.x = 1;
+            if (p.x > 1) p.x = 0;
+            const alpha = 0.25 + 0.45 * (0.5 + 0.5 * Math.sin(t * 1.8 + p.phase));
+            ctx.beginPath();
+            ctx.arc(p.x * w, p.y * h, p.r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(94, 234, 212, ${alpha})`;
+            ctx.fill();
+          }
+          ctx.restore();
+        },
+        loop() {
+          this.t += 0.016;
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          if (this.mode === 'aurora') this.drawAurora(w, h, this.t);
+          else if (this.mode === 'cyber') this.drawCyber(w, h, this.t);
+          else this.drawOcean(w, h, this.t);
+          this.rafId = requestAnimationFrame(() => this.loop());
+        }
+      };
+
+      /* =====================================================================
+         SECTION 4: WINDOW MANAGER
+         ===================================================================== */
+      const WindowManager = {
+        windows: new Map(), // id -> winObj
+        nextPid: 1001,
+        topZ: 100,
+        focusedId: null,
+        layer: null,
+        shield: null,
+
+        init() {
+          this.layer = document.getElementById('window-layer');
+          this.shield = document.getElementById('drag-shield');
+        },
+
+        openApp(appId, params = {}) {
+          const def = AppRegistry[appId];
+          if (!def) return null;
+
+          // If single-instance app already open and no special file override, focus/restore it
+          if (def.singleton) {
+            for (const win of this.windows.values()) {
+              if (win.appId === appId) {
+                if (win.minimized) this.restore(win.id);
+                this.focus(win.id);
+                if (win.instance && typeof win.instance.onParams === 'function') {
+                  win.instance.onParams(params);
+                }
+                return win;
+              }
+            }
+          }
+
+          const pid = this.nextPid++;
+          const id = `win-${pid}`;
+          const vw = window.innerWidth;
+          const vh = window.innerHeight - 32; // below top bar
+
+          // Compute sensible responsive size & cascade position
+          const width = Math.min(def.defaultWidth || 680, Math.max(320, vw - 24));
+          const height = Math.min(def.defaultHeight || 460, Math.max(280, vh - 96));
+          const offset = (this.windows.size % 6) * 26;
+          const left = Math.max(12, Math.min(vw - width - 12, Math.round((vw - width) / 2) + offset - 30));
+          const top = Math.max(12, Math.min(vh - height - 80, Math.round((vh - height) / 2) + offset - 30));
+
+          const el = document.createElement('section');
+          el.id = id;
+          el.className = 'os-window glass-window opening absolute rounded-2xl flex flex-col overflow-hidden pointer-events-auto';
+          el.style.width = `${width}px`;
+          el.style.height = `${height}px`;
+          el.style.left = `${left}px`;
+          el.style.top = `${top}px`;
+          el.style.zIndex = ++this.topZ;
+
+          el.innerHTML = `
+            <div class="win-titlebar h-10 px-3.5 flex items-center justify-between bg-white/[0.04] border-b border-white/10 cursor-grab active:cursor-grabbing shrink-0 select-none">
+              <div class="flex items-center gap-2">
+                <button class="win-btn-close w-3 h-3 rounded-full bg-rose-500 hover:bg-rose-400 transition-colors flex items-center justify-center group" title="Close">
+                  <span class="text-[8px] font-bold text-rose-950 opacity-0 group-hover:opacity-100 leading-none">×</span>
+                </button>
+                <button class="win-btn-min w-3 h-3 rounded-full bg-amber-400 hover:bg-amber-300 transition-colors flex items-center justify-center group" title="Minimize">
+                  <span class="text-[8px] font-bold text-amber-950 opacity-0 group-hover:opacity-100 leading-none">−</span>
+                </button>
+                <button class="win-btn-max w-3 h-3 rounded-full bg-emerald-500 hover:bg-emerald-400 transition-colors flex items-center justify-center group" title="Maximize / Restore">
+                  <span class="text-[8px] font-bold text-emerald-950 opacity-0 group-hover:opacity-100 leading-none">+</span>
+                </button>
+              </div>
+              <div class="win-title flex items-center gap-2 text-xs font-semibold text-slate-200 truncate px-2 pointer-events-none">
+                <span class="win-title-text truncate">${Utils.escapeHtml(def.title)}</span>
+              </div>
+              <div class="w-12 text-right font-mono text-[10px] text-slate-500">PID ${pid}</div>
+            </div>
+            <div class="win-body flex-1 min-h-0 overflow-hidden relative flex flex-col"></div>
+            <div class="win-resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-20 flex items-end justify-end p-0.5 opacity-60 hover:opacity-100">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M9 1L1 9M9 5L5 9" stroke="rgba(148,163,184,0.8)" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+            </div>
+          `;
+
+          const winObj = {
+            id,
+            pid,
+            appId,
+            title: def.title,
+            el,
+            bodyEl: el.querySelector('.win-body'),
+            titleEl: el.querySelector('.win-title-text'),
+            minimized: false,
+            maximized: false,
+            prevRect: null,
+            minW: def.minWidth || 340,
+            minH: def.minHeight || 260,
+            instance: null,
+            setTitle(newTitle) {
+              this.title = newTitle;
+              this.titleEl.textContent = newTitle;
+              if (WindowManager.focusedId === this.id) {
+                WindowManager.updateActiveLabel();
+              }
+              EventBus.emit('wm:change');
+            }
+          };
+
+          this.windows.set(id, winObj);
+          this.layer.appendChild(el);
+          setTimeout(() => el.classList.remove('opening'), 220);
+
+          // Bind window controls & interactions
+          this.bindWindowEvents(winObj);
+
+          // Mount App inside window body
+          try {
+            winObj.instance = def.mount(winObj, params) || {};
+          } catch (err) {
+            console.error(`Failed to mount ${appId}:`, err);
+            winObj.bodyEl.innerHTML = `<div class="p-4 text-rose-400 text-xs font-mono">App Error: ${Utils.escapeHtml(err.message)}</div>`;
+          }
+
+          this.focus(id);
+          EventBus.emit('wm:change');
+          return winObj;
+        },
+
+        bindWindowEvents(win) {
+          const { el } = win;
+          const titlebar = el.querySelector('.win-titlebar');
+          const resizeHandle = el.querySelector('.win-resize-handle');
+
+          // Focus on any pointerdown inside window
+          el.addEventListener('pointerdown', () => {
+            if (this.focusedId !== win.id) this.focus(win.id);
+          });
+
+          // Controls
+          el.querySelector('.win-btn-close').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.close(win.id);
+          });
+          el.querySelector('.win-btn-min').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.minimize(win.id);
+          });
+          el.querySelector('.win-btn-max').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleMaximize(win.id);
+          });
+          titlebar.addEventListener('dblclick', (e) => {
+            if (e.target.closest('button')) return;
+            this.toggleMaximize(win.id);
+          });
+
+          // Smooth Dragging via Titlebar with Drag Shield
+          titlebar.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('button') || e.button !== 0) return;
+            if (win.maximized) return;
+            e.preventDefault();
+            this.focus(win.id);
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startLeft = parseFloat(el.style.left) || 0;
+            const startTop = parseFloat(el.style.top) || 0;
+
+            el.classList.add('dragging');
+            this.shield.classList.remove('hidden');
+            this.shield.style.cursor = 'grabbing';
+
+            const onMove = (ev) => {
+              const dx = ev.clientX - startX;
+              const dy = ev.clientY - startY;
+              const maxTop = window.innerHeight - 32 - 44;
+              const minLeft = -(el.offsetWidth - 80);
+              const maxLeft = window.innerWidth - 80;
+              const nextLeft = Math.max(minLeft, Math.min(maxLeft, startLeft + dx));
+              const nextTop = Math.max(0, Math.min(maxTop, startTop + dy));
+              el.style.left = `${nextLeft}px`;
+              el.style.top = `${nextTop}px`;
+            };
+
+            const onUp = () => {
+              el.classList.remove('dragging');
+              this.shield.classList.add('hidden');
+              window.removeEventListener('pointermove', onMove);
+              window.removeEventListener('pointerup', onUp);
+            };
+
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+          });
+
+          // Smooth Corner Resizing with Drag Shield
+          resizeHandle.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 || win.maximized) return;
+            e.preventDefault();
+            e.stopPropagation();
+            this.focus(win.id);
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startW = el.offsetWidth;
+            const startH = el.offsetHeight;
+
+            el.classList.add('resizing');
+            this.shield.classList.remove('hidden');
+            this.shield.style.cursor = 'nwse-resize';
+
+            const onMove = (ev) => {
+              const nextW = Math.max(win.minW, Math.min(window.innerWidth - 16, startW + (ev.clientX - startX)));
+              const nextH = Math.max(win.minH, Math.min(window.innerHeight - 48, startH + (ev.clientY - startY)));
+              el.style.width = `${nextW}px`;
+              el.style.height = `${nextH}px`;
+              if (win.instance && typeof win.instance.onResize === 'function') {
+                win.instance.onResize();
+              }
+            };
+
+            const onUp = () => {
+              el.classList.remove('resizing');
+              this.shield.classList.add('hidden');
+              window.removeEventListener('pointermove', onMove);
+              window.removeEventListener('pointerup', onUp);
+            };
+
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+          });
+        },
+
+        focus(id) {
+          const prev = this.windows.get(this.focusedId);
+          if (prev && prev.id !== id) {
+            prev.el.classList.remove('focused');
+            if (prev.instance && typeof prev.instance.onBlur === 'function') prev.instance.onBlur();
+          }
+          const win = this.windows.get(id);
+          if (!win) {
+            this.focusedId = null;
+            this.updateActiveLabel();
+            EventBus.emit('wm:change');
+            return;
+          }
+          win.el.style.zIndex = ++this.topZ;
+          win.el.classList.add('focused');
+          this.focusedId = id;
+          if (win.instance && typeof win.instance.onFocus === 'function') win.instance.onFocus();
+          this.updateActiveLabel();
+          EventBus.emit('wm:change');
+        },
+
+        minimize(id) {
+          const win = this.windows.get(id);
+          if (!win) return;
+          win.minimized = true;
+          win.el.classList.add('minimized');
+          win.el.classList.remove('focused');
+          if (win.instance && typeof win.instance.onBlur === 'function') win.instance.onBlur();
+          if (this.focusedId === id) {
+            this.focusNextAvailable();
+          }
+          EventBus.emit('wm:change');
+        },
+
+        restore(id) {
+          const win = this.windows.get(id);
+          if (!win) return;
+          win.minimized = false;
+          win.el.classList.remove('minimized');
+          this.focus(id);
+          EventBus.emit('wm:change');
+        },
+
+        toggleMaximize(id) {
+          const win = this.windows.get(id);
+          if (!win) return;
+          if (!win.maximized) {
+            win.prevRect = {
+              left: win.el.style.left,
+              top: win.el.style.top,
+              width: win.el.style.width,
+              height: win.el.style.height
+            };
+            win.maximized = true;
+            win.el.style.left = '8px';
+            win.el.style.top = '8px';
+            win.el.style.width = 'calc(100% - 16px)';
+            win.el.style.height = 'calc(100% - 86px)';
+          } else {
+            win.maximized = false;
+            if (win.prevRect) {
+              win.el.style.left = win.prevRect.left;
+              win.el.style.top = win.prevRect.top;
+              win.el.style.width = win.prevRect.width;
+              win.el.style.height = win.prevRect.height;
+            }
+          }
+          if (win.instance && typeof win.instance.onResize === 'function') {
+            setTimeout(() => win.instance.onResize(), 230);
+          }
+        },
+
+        close(id) {
+          const win = this.windows.get(id);
+          if (!win) return;
+          if (win.instance && typeof win.instance.onClose === 'function') {
+            try { win.instance.onClose(); } catch (e) { console.error(e); }
+          }
+          win.el.remove();
+          this.windows.delete(id);
+          if (this.focusedId === id) {
+            this.focusNextAvailable();
+          }
+          EventBus.emit('wm:change');
+        },
+
+        focusNextAvailable() {
+          let topWin = null;
+          let maxZ = -1;
+          for (const w of this.windows.values()) {
+            if (!w.minimized) {
+              const z = parseInt(w.el.style.zIndex || '0', 10);
+              if (z > maxZ) { maxZ = z; topWin = w; }
+            }
+          }
+          if (topWin) this.focus(topWin.id);
+          else {
+            this.focusedId = null;
+            this.updateActiveLabel();
+          }
+        },
+
+        updateActiveLabel() {
+          const label = document.getElementById('active-app-label');
+          if (!label) return;
+          const win = this.windows.get(this.focusedId);
+          label.textContent = win ? win.title : 'Desktop';
+        },
+
+        handleDockClick(appId) {
+          const openWins = Array.from(this.windows.values()).filter(w => w.appId === appId);
+          if (openWins.length === 0) {
+            this.openApp(appId);
+            return;
+          }
+          const latest = openWins[openWins.length - 1];
+          if (latest.minimized) {
+            this.restore(latest.id);
+          } else if (this.focusedId === latest.id) {
+            this.minimize(latest.id);
+          } else {
+            this.focus(latest.id);
+          }
+        }
+      };
+
+      /* =====================================================================
+         SECTION 5: BUILT-IN APPLICATIONS (5 Full Apps)
+         ===================================================================== */
+
+      /* ---------------------------------------------------------------------
+         APP 1: TERMINAL (>_)
+         --------------------------------------------------------------------- */
+      function mountTerminal(win) {
+        let cwd = '/home/guest';
+        const history = [];
+        let historyIdx = -1;
+
+        win.bodyEl.innerHTML = `
+          <div class="term-root flex-1 flex flex-col bg-[#060913]/90 font-mono text-xs sm:text-[13px] text-slate-200 p-3 overflow-y-auto cursor-text selectable">
+            <div class="term-output space-y-1.5 whitespace-pre-wrap break-words leading-relaxed"></div>
+            <div class="flex items-center gap-2 mt-2 shrink-0">
+              <span class="term-prompt text-emerald-400 font-semibold shrink-0">guest@aether:~$</span>
+              <input type="text" class="term-input flex-1 bg-transparent border-none outline-none text-slate-100 caret-sky-400" autocomplete="off" spellcheck="false" aria-label="Terminal command input" />
+            </div>
+          </div>
+        `;
+
+        const root = win.bodyEl.querySelector('.term-root');
+        const output = win.bodyEl.querySelector('.term-output');
+        const promptEl = win.bodyEl.querySelector('.term-prompt');
+        const input = win.bodyEl.querySelector('.term-input');
+
+        const formatPromptPath = (p) => p === '/home/guest' ? '~' : p.startsWith('/home/guest/') ? '~' + p.slice(11) : p;
+        const updatePrompt = () => {
+          promptEl.textContent = `guest@aether:${formatPromptPath(cwd)}$`;
+          win.setTitle(`Terminal — ${formatPromptPath(cwd)}`);
+        };
+
+        const print = (html, isHtml = false) => {
+          const line = document.createElement('div');
+          if (isHtml) line.innerHTML = html;
+          else line.textContent = html;
+          output.appendChild(line);
+          root.scrollTop = root.scrollHeight;
+        };
+
+        print(`<span class="text-sky-400 font-semibold">AetherOS Shell v2.4.0</span> <span class="text-slate-400">— Type <span class="text-amber-300">help</span> for available commands.</span>`, true);
+
+        const runCommand = (rawLine) => {
+          const line = rawLine.trim();
+          print(`<span class="text-emerald-400 font-semibold">${Utils.escapeHtml(promptEl.textContent)}</span> <span class="text-white">${Utils.escapeHtml(rawLine)}</span>`, true);
+          if (!line) return;
+
+          history.push(line);
+          historyIdx = history.length;
+
+          // Handle output redirection: echo <text> > <file> or >>
+          const redirMatch = line.match(/^echo\s+([\s\S]+?)\s*(>>?)\s*(\S+)$/);
+          if (redirMatch) {
+            let text = redirMatch[1].trim();
+            if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+              text = text.slice(1, -1);
+            }
+            const op = redirMatch[2];
+            const targetPath = VFS.normalizePath(cwd, redirMatch[3]);
+            let finalContent = text;
+            if (op === '>>') {
+              const existing = VFS.getNode(targetPath);
+              if (existing && existing.type === 'file') {
+                finalContent = (existing.content ? existing.content + '\n' : '') + text;
+              }
+            }
+            const res = VFS.writeFile(targetPath, finalContent);
+            if (!res.ok) print(`<span class="text-rose-400">echo: ${Utils.escapeHtml(res.error)}</span>`, true);
+            return;
+          }
+
+          // Basic argument tokenizer supporting quotes
+          const tokens = [];
+          let current = '';
+          let quote = null;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (quote) {
+              if (ch === quote) quote = null;
+              else current += ch;
+            } else if (ch === '"' || ch === "'") {
+              quote = ch;
+            } else if (/\s/.test(ch)) {
+              if (current) { tokens.push(current); current = ''; }
+            } else {
+              current += ch;
+            }
+          }
+          if (current) tokens.push(current);
+
+          const cmd = tokens[0];
+          const args = tokens.slice(1);
+
+          switch (cmd) {
+            case 'help':
+              print([
+                '<span class="text-sky-300 font-semibold">Available Commands:</span>',
+                '  <span class="text-amber-300">ls [path]</span>               List directory contents',
+                '  <span class="text-amber-300">cd [path]</span>               Change working directory',
+                '  <span class="text-amber-300">pwd</span>                     Print working directory',
+                '  <span class="text-amber-300">mkdir &lt;dir&gt;</span>             Create a new directory',
+                '  <span class="text-amber-300">touch &lt;file&gt;</span>            Create an empty file',
+                '  <span class="text-amber-300">cat &lt;file&gt;</span>              Display file contents',
+                '  <span class="text-amber-300">rm &lt;path&gt;</span>               Remove file or directory',
+                '  <span class="text-amber-300">echo &lt;text&gt; &gt; &lt;file&gt;</span>   Write text to a file',
+                '  <span class="text-amber-300">open &lt;file&gt;</span>             Open file in CodePad',
+                '  <span class="text-amber-300">neofetch</span>                Show AetherOS system info',
+                '  <span class="text-amber-300">whoami</span> / <span class="text-amber-300">date</span> / <span class="text-amber-300">clear</span>   System utilities'
+              ].join('\n'), true);
+              break;
+
+            case 'pwd':
+              print(cwd);
+              break;
+
+            case 'whoami':
+              print('guest');
+              break;
+
+            case 'date':
+              print(new Date().toString());
+              break;
+
+            case 'clear':
+              output.innerHTML = '';
+              break;
+
+            case 'echo':
+              print(args.join(' '));
+              break;
+
+            case 'ls': {
+              const target = args[0] && !args[0].startsWith('-') ? VFS.normalizePath(cwd, args[0]) : cwd;
+              const items = VFS.listDir(target);
+              if (!items) {
+                print(`<span class="text-rose-400">ls: cannot access '${Utils.escapeHtml(args[0] || target)}': No such directory</span>`, true);
+              } else if (items.length === 0) {
+                print('<span class="text-slate-500">(empty directory)</span>', true);
+              } else {
+                const html = items.map(it =>
+                  it.type === 'dir'
+                    ? `<span class="text-sky-400 font-semibold">${Utils.escapeHtml(it.name)}/</span>`
+                    : `<span class="text-slate-200">${Utils.escapeHtml(it.name)}</span>`
+                ).join('   ');
+                print(html, true);
+              }
+              break;
+            }
+
+            case 'cd': {
+              const target = args[0] ? VFS.normalizePath(cwd, args[0]) : '/home/guest';
+              const node = VFS.getNode(target);
+              if (!node) print(`<span class="text-rose-400">cd: no such file or directory: ${Utils.escapeHtml(args[0])}</span>`, true);
+              else if (node.type !== 'dir') print(`<span class="text-rose-400">cd: not a directory: ${Utils.escapeHtml(args[0])}</span>`, true);
+              else {
+                cwd = target;
+                updatePrompt();
+              }
+              break;
+            }
+
+            case 'mkdir': {
+              if (!args[0]) { print('<span class="text-rose-400">mkdir: missing operand</span>', true); break; }
+              const res = VFS.mkdir(VFS.normalizePath(cwd, args[0]));
+              if (!res.ok) print(`<span class="text-rose-400">mkdir: ${Utils.escapeHtml(res.error)}</span>`, true);
+              break;
+            }
+
+            case 'touch': {
+              if (!args[0]) { print('<span class="text-rose-400">touch: missing file operand</span>', true); break; }
+              const res = VFS.touch(VFS.normalizePath(cwd, args[0]));
+              if (!res.ok) print(`<span class="text-rose-400">touch: ${Utils.escapeHtml(res.error)}</span>`, true);
+              break;
+            }
+
+            case 'cat': {
+              if (!args[0]) { print('<span class="text-rose-400">cat: missing file operand</span>', true); break; }
+              const node = VFS.getNode(VFS.normalizePath(cwd, args[0]));
+              if (!node) print(`<span class="text-rose-400">cat: ${Utils.escapeHtml(args[0])}: No such file</span>`, true);
+              else if (node.type === 'dir') print(`<span class="text-rose-400">cat: ${Utils.escapeHtml(args[0])}: Is a directory</span>`, true);
+              else print(node.content || '');
+              break;
+            }
+
+            case 'rm': {
+              if (!args[0]) { print('<span class="text-rose-400">rm: missing operand</span>', true); break; }
+              const res = VFS.deleteNode(VFS.normalizePath(cwd, args[0]));
+              if (!res.ok) print(`<span class="text-rose-400">rm: ${Utils.escapeHtml(res.error)}</span>`, true);
+              break;
+            }
+
+            case 'open': {
+              if (!args[0]) { print('<span class="text-rose-400">open: specify a file path</span>', true); break; }
+              const targetPath = VFS.normalizePath(cwd, args[0]);
+              const node = VFS.getNode(targetPath);
+              if (node && node.type === 'dir') {
+                print(`<span class="text-rose-400">open: '${Utils.escapeHtml(args[0])}' is a directory</span>`, true);
+                break;
+              }
+              if (!node) VFS.touch(targetPath);
+              WindowManager.openApp('codepad', { filePath: targetPath });
+              print(`<span class="text-emerald-400">Launched CodePad → ${Utils.escapeHtml(targetPath)}</span>`, true);
+              break;
+            }
+
+            case 'neofetch': {
+              const uptimeSec = Math.floor((Date.now() - OS_BOOT_TIME) / 1000);
+              const mins = Math.floor(uptimeSec / 60);
+              const secs = uptimeSec % 60;
+              const ascii = [
+                '      /\\        ',
+                '     /  \\       ',
+                '    / /\\ \\      ',
+                '   / ____ \\     ',
+                '  /_/    \\_\\    ',
+                '  A E T H E R   '
+              ];
+              const info = [
+                `<span class="text-sky-400 font-bold">guest@aether</span>`,
+                `<span class="text-slate-500">--------------------</span>`,
+                `<span class="text-sky-300 font-semibold">OS:</span> AetherOS 2.4 WebDesktop`,
+                `<span class="text-sky-300 font-semibold">Kernel:</span> HTML5 / V8 Engine`,
+                `<span class="text-sky-300 font-semibold">Uptime:</span> ${mins}m ${secs}s`,
+                `<span class="text-sky-300 font-semibold">Resolution:</span> ${window.innerWidth}x${window.innerHeight}`,
+                `<span class="text-sky-300 font-semibold">Windows:</span> ${WindowManager.windows.size} active`,
+                `<span class="text-sky-300 font-semibold">Theme:</span> Glassmorphic Dark`
+              ];
+              let out = '';
+              for (let i = 0; i < Math.max(ascii.length, info.length); i++) {
+                const a = ascii[i] || '                ';
+                const b = info[i] || '';
+                out += `<span class="text-indigo-400 font-bold">${Utils.escapeHtml(a)}</span>  ${b}\n`;
+              }
+              print(out, true);
+              break;
+            }
+
+            default:
+              print(`<span class="text-rose-400">aether-sh: command not found: ${Utils.escapeHtml(cmd)}</span>`, true);
+          }
+        };
+
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            const val = input.value;
+            input.value = '';
+            runCommand(val);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (history.length > 0 && historyIdx > 0) {
+              historyIdx--;
+              input.value = history[historyIdx];
+            }
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (historyIdx < history.length - 1) {
+              historyIdx++;
+              input.value = history[historyIdx];
+            } else {
+              historyIdx = history.length;
+              input.value = '';
+            }
+          } else if (e.key === 'Tab') {
+            e.preventDefault();
+            const parts = input.value.split(/\s+/);
+            const last = parts[parts.length - 1] || '';
+            const items = VFS.listDir(cwd) || [];
+            const match = items.find(it => it.name.toLowerCase().startsWith(last.toLowerCase()));
+            if (match) {
+              parts[parts.length - 1] = match.name;
+              input.value = parts.join(' ');
+            }
+          }
+        });
+
+        root.addEventListener('click', () => {
+          const sel = window.getSelection();
+          if (!sel || sel.toString().length === 0) input.focus();
+        });
+
+        updatePrompt();
+        setTimeout(() => input.focus(), 50);
+
+        return {
+          onFocus() { input.focus(); }
+        };
+      }
+
+      /* ---------------------------------------------------------------------
+         APP 2: FILES (Explorer)
+         --------------------------------------------------------------------- */
+      function mountFiles(win) {
+        let currentPath = '/home/guest';
+        let selectedPath = null;
+        let createMode = null; // 'file' | 'dir' | null
+
+        win.bodyEl.innerHTML = `
+          <div class="flex-1 flex flex-col min-h-0 bg-slate-950/50">
+            <!-- Toolbar -->
+            <div class="px-3 py-2 border-b border-white/10 flex flex-wrap items-center justify-between gap-2 bg-white/[0.02]">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <button class="files-up px-2 py-1 rounded-lg bg-white/5 hover:bg-white/15 text-xs text-slate-300 transition-colors" title="Parent Folder">↑</button>
+                <div class="files-breadcrumbs flex items-center gap-1 text-xs overflow-x-auto whitespace-nowrap"></div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button class="files-new-file px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/30 text-sky-200 text-xs font-medium transition-colors">+ File</button>
+                <button class="files-new-dir px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/35 border border-indigo-400/30 text-indigo-200 text-xs font-medium transition-colors">+ Folder</button>
+                <button class="files-delete px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 border border-rose-400/25 text-rose-300 text-xs font-medium transition-colors disabled:opacity-35 disabled:pointer-events-none" disabled>Delete</button>
+              </div>
+            </div>
+
+            <!-- Inline Create Bar (no alert/prompt!) -->
+            <div class="files-create-bar hidden px-3 py-2 border-b border-sky-400/30 bg-sky-500/10 flex items-center gap-2">
+              <span class="files-create-label text-xs text-sky-200 font-medium">New File:</span>
+              <input type="text" class="files-create-input flex-1 bg-slate-900/80 border border-white/15 rounded-lg px-2.5 py-1 text-xs text-white outline-none focus:border-sky-400" placeholder="example.md" />
+              <button class="files-create-confirm px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs">Create</button>
+              <button class="files-create-cancel px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 text-xs">Cancel</button>
+            </div>
+
+            <!-- Main Split: Sidebar + Grid -->
+            <div class="flex-1 flex min-h-0">
+              <aside class="hidden sm:flex w-40 border-r border-white/10 p-2 flex-col gap-1 bg-white/[0.015] shrink-0">
+                <div class="px-2 py-1 text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Locations</div>
+                <button data-nav="/home/guest" class="files-nav-btn text-left px-2.5 py-1.5 rounded-lg text-xs text-slate-300 hover:bg-white/10 flex items-center gap-2"><span>🏠</span> Home</button>
+                <button data-nav="/home/guest/Documents" class="files-nav-btn text-left px-2.5 py-1.5 rounded-lg text-xs text-slate-300 hover:bg-white/10 flex items-center gap-2"><span>📄</span> Documents</button>
+                <button data-nav="/home/guest/Projects" class="files-nav-btn text-left px-2.5 py-1.5 rounded-lg text-xs text-slate-300 hover:bg-white/10 flex items-center gap-2"><span>🚀</span> Projects</button>
+                <button data-nav="/home/guest/Notes" class="files-nav-btn text-left px-2.5 py-1.5 rounded-lg text-xs text-slate-300 hover:bg-white/10 flex items-center gap-2"><span>📝</span> Notes</button>
+              </aside>
+              <div class="files-list flex-1 p-3 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 content-start"></div>
+            </div>
+
+            <!-- Status Bar -->
+            <div class="files-status px-3 py-1.5 border-t border-white/10 text-[11px] text-slate-400 flex items-center justify-between bg-white/[0.02]">
+              <span class="files-count">0 items</span>
+              <span>Double-click to open</span>
+            </div>
+          </div>
+        `;
+
+        const breadcrumbsEl = win.bodyEl.querySelector('.files-breadcrumbs');
+        const listEl = win.bodyEl.querySelector('.files-list');
+        const countEl = win.bodyEl.querySelector('.files-count');
+        const deleteBtn = win.bodyEl.querySelector('.files-delete');
+        const createBar = win.bodyEl.querySelector('.files-create-bar');
+        const createLabel = win.bodyEl.querySelector('.files-create-label');
+        const createInput = win.bodyEl.querySelector('.files-create-input');
+
+        const render = () => {
+          // Ensure currentPath still exists
+          if (!VFS.getNode(currentPath)) currentPath = '/home/guest';
+          win.setTitle(`Files — ${currentPath}`);
+
+          // Breadcrumbs
+          const parts = currentPath.split('/').filter(Boolean);
+          let acc = '';
+          let bcHtml = `<button data-bc="/" class="px-1.5 py-0.5 rounded hover:bg-white/10 text-slate-400">/</button>`;
+          for (const p of parts) {
+            acc += '/' + p;
+            bcHtml += `<span class="text-slate-600">/</span><button data-bc="${Utils.escapeHtml(acc)}" class="px-1.5 py-0.5 rounded hover:bg-white/10 text-slate-200 font-medium">${Utils.escapeHtml(p)}</button>`;
+          }
+          breadcrumbsEl.innerHTML = bcHtml;
+          breadcrumbsEl.querySelectorAll('[data-bc]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              currentPath = btn.dataset.bc;
+              selectedPath = null;
+              render();
+            });
+          });
+
+          // Highlight sidebar
+          win.bodyEl.querySelectorAll('.files-nav-btn').forEach(btn => {
+            const active = btn.dataset.nav === currentPath;
+            btn.classList.toggle('bg-sky-500/20', active);
+            btn.classList.toggle('text-sky-200', active);
+          });
+
+          // Items
+          const items = VFS.listDir(currentPath) || [];
+          countEl.textContent = `${items.length} item${items.length === 1 ? '' : 's'}`;
+          deleteBtn.disabled = !selectedPath;
+
+          if (items.length === 0) {
+            listEl.innerHTML = `<div class="col-span-full py-12 text-center text-xs text-slate-500">This folder is empty.</div>`;
+            return;
+          }
+
+          listEl.innerHTML = items.map(it => {
+            const isSel = selectedPath === it.path;
+            const icon = it.type === 'dir'
+              ? `<svg class="w-9 h-9 text-amber-400" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>`
+              : `<svg class="w-9 h-9 text-sky-400" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>`;
+            const meta = it.type === 'dir' ? `${it.size} items` : Utils.formatBytes(it.size);
+            return `
+              <div data-path="${Utils.escapeHtml(it.path)}" data-type="${it.type}" class="file-card p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col items-center text-center gap-1.5 ${isSel ? 'bg-sky-500/20 border-sky-400/50' : 'bg-white/[0.025] border-white/5 hover:bg-white/[0.07]'}">
+                ${icon}
+                <div class="text-xs font-medium text-slate-100 truncate w-full" title="${Utils.escapeHtml(it.name)}">${Utils.escapeHtml(it.name)}</div>
+                <div class="text-[10px] text-slate-400">${meta}</div>
+              </div>
+            `;
+          }).join('');
+
+          listEl.querySelectorAll('.file-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+              e.stopPropagation();
+              selectedPath = card.dataset.path;
+              render();
+            });
+            card.addEventListener('dblclick', () => {
+              if (card.dataset.type === 'dir') {
+                currentPath = card.dataset.path;
+                selectedPath = null;
+                render();
+              } else {
+                WindowManager.openApp('codepad', { filePath: card.dataset.path });
+              }
+            });
+          });
+        };
+
+        const openCreateBar = (mode) => {
+          createMode = mode;
+          createLabel.textContent = mode === 'dir' ? 'New Folder:' : 'New File:';
+          createInput.placeholder = mode === 'dir' ? 'FolderName' : 'notes.md';
+          createInput.value = '';
+          createBar.classList.remove('hidden');
+          createInput.focus();
+        };
+
+        const closeCreateBar = () => {
+          createMode = null;
+          createBar.classList.add('hidden');
+        };
+
+        const submitCreate = () => {
+          const name = createInput.value.trim();
+          if (!name) return;
+          const target = VFS.normalizePath(currentPath, name);
+          const res = createMode === 'dir' ? VFS.mkdir(target) : VFS.writeFile(target, '');
+          if (!res.ok) Utils.toast(res.error, 'error');
+          else {
+            Utils.toast(`Created ${name}`, 'success');
+            closeCreateBar();
+          }
+        };
+
+        win.bodyEl.querySelector('.files-up').addEventListener('click', () => {
+          currentPath = VFS.normalizePath(currentPath, '..');
+          selectedPath = null;
+          render();
+        });
+        win.bodyEl.querySelector('.files-new-file').addEventListener('click', () => openCreateBar('file'));
+        win.bodyEl.querySelector('.files-new-dir').addEventListener('click', () => openCreateBar('dir'));
+        win.bodyEl.querySelector('.files-create-confirm').addEventListener('click', submitCreate);
+        win.bodyEl.querySelector('.files-create-cancel').addEventListener('click', closeCreateBar);
+        createInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') submitCreate();
+          if (e.key === 'Escape') closeCreateBar();
+        });
+
+        deleteBtn.addEventListener('click', () => {
+          if (!selectedPath) return;
+          const res = VFS.deleteNode(selectedPath);
+          if (!res.ok) Utils.toast(res.error, 'error');
+          else {
+            Utils.toast('Deleted item', 'info');
+            selectedPath = null;
+          }
+        });
+
+        win.bodyEl.querySelectorAll('.files-nav-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (VFS.getNode(btn.dataset.nav)) {
+              currentPath = btn.dataset.nav;
+              selectedPath = null;
+              render();
+            }
+          });
+        });
+
+        listEl.addEventListener('click', () => {
+          if (selectedPath) { selectedPath = null; render(); }
+        });
+
+        const unsub = EventBus.on('vfs:change', render);
+        render();
+
+        return {
+          onClose() { unsub(); }
+        };
+      }
+
+      /* ---------------------------------------------------------------------
+         APP 3: CODEPAD (Markdown & Text Editor)
+         --------------------------------------------------------------------- */
+      function renderMarkdown(md) {
+        const escaped = Utils.escapeHtml(md || '');
+        const codeBlocks = [];
+        let html = escaped.replace(/```([\s\S]*?)```/g, (_, code) => {
+          const idx = codeBlocks.length;
+          codeBlocks.push(`<pre><code>${code.replace(/^\n/, '')}</code></pre>`);
+          return `@@CODEBLOCK_${idx}@@`;
+        });
+
+        const lines = html.split('\n');
+        const out = [];
+        let inUl = false;
+        let inOl = false;
+
+        const closeLists = () => {
+          if (inUl) { out.push('</ul>'); inUl = false; }
+          if (inOl) { out.push('</ol>'); inOl = false; }
+        };
+
+        const inlineFormat = (s) => s
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\*\*([^*]+)\*\*/g, '<strong class="text-white font-semibold">$1</strong>')
+          .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+          .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+        for (const rawLine of lines) {
+          const line = rawLine;
+          if (/^@@CODEBLOCK_\d+@@$/.test(line.trim())) {
+            closeLists();
+            out.push(line.trim());
+          } else if (/^###\s+(.*)/.test(line)) {
+            closeLists();
+            out.push(`<h3>${inlineFormat(line.replace(/^###\s+/, ''))}</h3>`);
+          } else if (/^##\s+(.*)/.test(line)) {
+            closeLists();
+            out.push(`<h2>${inlineFormat(line.replace(/^##\s+/, ''))}</h2>`);
+          } else if (/^#\s+(.*)/.test(line)) {
+            closeLists();
+            out.push(`<h1>${inlineFormat(line.replace(/^#\s+/, ''))}</h1>`);
+          } else if (/^&gt;\s?(.*)/.test(line)) {
+            closeLists();
+            out.push(`<blockquote>${inlineFormat(line.replace(/^&gt;\s?/, ''))}</blockquote>`);
+          } else if (/^---+$/.test(line.trim())) {
+            closeLists();
+            out.push('<hr/>');
+          } else if (/^[-*]\s+(.*)/.test(line)) {
+            if (inOl) { out.push('</ol>'); inOl = false; }
+            if (!inUl) { out.push('<ul>'); inUl = true; }
+            out.push(`<li>${inlineFormat(line.replace(/^[-*]\s+/, ''))}</li>`);
+          } else if (/^\d+\.\s+(.*)/.test(line)) {
+            if (inUl) { out.push('</ul>'); inUl = false; }
+            if (!inOl) { out.push('<ol>'); inOl = true; }
+            out.push(`<li>${inlineFormat(line.replace(/^\d+\.\s+/, ''))}</li>`);
+          } else if (line.trim() === '') {
+            closeLists();
+          } else {
+            closeLists();
+            out.push(`<p>${inlineFormat(line)}</p>`);
+          }
+        }
+        closeLists();
+
+        let finalHtml = out.join('\n');
+        codeBlocks.forEach((block, i) => {
+          finalHtml = finalHtml.replace(`@@CODEBLOCK_${i}@@`, block);
+        });
+        return finalHtml;
+      }
+
+      function mountCodePad(win, params = {}) {
+        let currentFile = params.filePath || '/home/guest/welcome.md';
+        let dirty = false;
+        let showPreview = currentFile.endsWith('.md');
+
+        win.bodyEl.innerHTML = `
+          <div class="flex-1 flex flex-col min-h-0 bg-[#080d1a]/90">
+            <!-- Toolbar -->
+            <div class="px-3 py-2 border-b border-white/10 flex flex-wrap items-center justify-between gap-2 bg-white/[0.025]">
+              <div class="flex items-center gap-2 min-w-0">
+                <select class="cp-file-select bg-slate-900/90 border border-white/15 rounded-lg px-2 py-1 text-xs text-slate-200 outline-none focus:border-sky-400 max-w-[190px] sm:max-w-[240px]"></select>
+                <span class="cp-dirty hidden w-2 h-2 rounded-full bg-amber-400" title="Unsaved changes"></span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button class="cp-new-btn px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-xs text-slate-200 transition-colors">New</button>
+                <button class="cp-preview-btn px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors">Split Preview</button>
+                <button class="cp-save-btn px-3 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition-colors">Save</button>
+              </div>
+            </div>
+
+            <!-- Inline New File Bar -->
+            <div class="cp-new-bar hidden px-3 py-2 border-b border-sky-400/30 bg-sky-500/10 flex items-center gap-2">
+              <span class="text-xs text-sky-200">Path:</span>
+              <input type="text" class="cp-new-input flex-1 bg-slate-900/80 border border-white/15 rounded-lg px-2.5 py-1 text-xs text-white outline-none focus:border-sky-400" value="/home/guest/untitled.md" />
+              <button class="cp-new-ok px-2.5 py-1 rounded-lg bg-sky-500 text-slate-950 font-semibold text-xs">Create</button>
+              <button class="cp-new-cancel px-2 py-1 rounded-lg bg-white/10 text-slate-300 text-xs">Cancel</button>
+            </div>
+
+            <!-- Editor + Live Preview -->
+            <div class="flex-1 flex min-h-0 divide-x divide-white/10">
+              <textarea class="cp-editor flex-1 h-full bg-transparent p-3.5 font-mono text-xs sm:text-[13px] text-slate-100 leading-relaxed outline-none resize-none" spellcheck="false" placeholder="Start typing..."></textarea>
+              <div class="cp-preview md-preview hidden flex-1 h-full p-4 overflow-y-auto bg-slate-950/40 text-xs sm:text-sm"></div>
+            </div>
+
+            <!-- Status Bar -->
+            <div class="px-3 py-1.5 border-t border-white/10 text-[11px] text-slate-400 flex items-center justify-between bg-white/[0.02]">
+              <span class="cp-path font-mono truncate"></span>
+              <span class="cp-stats font-mono shrink-0">0 words • 0 chars</span>
+            </div>
+          </div>
+        `;
+
+        const selectEl = win.bodyEl.querySelector('.cp-file-select');
+        const dirtyDot = win.bodyEl.querySelector('.cp-dirty');
+        const editor = win.bodyEl.querySelector('.cp-editor');
+        const preview = win.bodyEl.querySelector('.cp-preview');
+        const previewBtn = win.bodyEl.querySelector('.cp-preview-btn');
+        const pathEl = win.bodyEl.querySelector('.cp-path');
+        const statsEl = win.bodyEl.querySelector('.cp-stats');
+        const newBar = win.bodyEl.querySelector('.cp-new-bar');
+        const newInput = win.bodyEl.querySelector('.cp-new-input');
+
+        const updatePreviewBtn = () => {
+          preview.classList.toggle('hidden', !showPreview);
+          previewBtn.className = showPreview
+            ? 'cp-preview-btn px-2.5 py-1 rounded-lg bg-indigo-500/30 border border-indigo-400/50 text-indigo-200 text-xs font-medium transition-colors'
+            : 'cp-preview-btn px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 text-xs font-medium transition-colors';
+          if (showPreview) preview.innerHTML = renderMarkdown(editor.value);
+        };
+
+        const updateStats = () => {
+          const text = editor.value;
+          const chars = text.length;
+          const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+          const lines = text.split('\n').length;
+          statsEl.textContent = `${lines} ln • ${words} words • ${chars} chars`;
+          dirtyDot.classList.toggle('hidden', !dirty);
+          win.setTitle(`CodePad — ${currentFile.split('/').pop()}${dirty ? ' •' : ''}`);
+        };
+
+        const populateFileSelect = () => {
+          const files = VFS.getAllFiles('/home/guest');
+          if (currentFile && !files.includes(currentFile)) files.unshift(currentFile);
+          selectEl.innerHTML = files.map(f => `<option value="${Utils.escapeHtml(f)}" ${f === currentFile ? 'selected' : ''}>${Utils.escapeHtml(f.replace('/home/guest/', '~/'))}</option>`).join('');
+        };
+
+        const loadFile = (path) => {
+          currentFile = path;
+          const node = VFS.getNode(path);
+          editor.value = node && node.type === 'file' ? (node.content || '') : '';
+          dirty = false;
+          pathEl.textContent = currentFile;
+          populateFileSelect();
+          updateStats();
+          if (showPreview) preview.innerHTML = renderMarkdown(editor.value);
+        };
+
+        const saveFile = () => {
+          const res = VFS.writeFile(currentFile, editor.value);
+          if (res.ok) {
+            dirty = false;
+            updateStats();
+            Utils.toast(`Saved ${currentFile.split('/').pop()}`, 'success');
+          } else {
+            Utils.toast(res.error, 'error');
+          }
+        };
+
+        editor.addEventListener('input', () => {
+          dirty = true;
+          updateStats();
+          if (showPreview) preview.innerHTML = renderMarkdown(editor.value);
+        });
+
+        editor.addEventListener('keydown', (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            saveFile();
+          } else if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = editor.selectionStart;
+            const end = editor.selectionEnd;
+            editor.value = editor.value.substring(0, start) + '  ' + editor.value.substring(end);
+            editor.selectionStart = editor.selectionEnd = start + 2;
+            dirty = true;
+            updateStats();
+          }
+        });
+
+        selectEl.addEventListener('change', () => loadFile(selectEl.value));
+        win.bodyEl.querySelector('.cp-save-btn').addEventListener('click', saveFile);
+        previewBtn.addEventListener('click', () => {
+          showPreview = !showPreview;
+          updatePreviewBtn();
+        });
+
+        win.bodyEl.querySelector('.cp-new-btn').addEventListener('click', () => {
+          newBar.classList.remove('hidden');
+          newInput.focus();
+          newInput.select();
+        });
+        win.bodyEl.querySelector('.cp-new-cancel').addEventListener('click', () => newBar.classList.add('hidden'));
+        const createNew = () => {
+          const p = VFS.normalizePath('/home/guest', newInput.value.trim());
+          const res = VFS.writeFile(p, '# New Document\n');
+          if (res.ok) {
+            newBar.classList.add('hidden');
+            loadFile(p);
+          } else {
+            Utils.toast(res.error, 'error');
+          }
+        };
+        win.bodyEl.querySelector('.cp-new-ok').addEventListener('click', createNew);
+        newInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') createNew();
+          if (e.key === 'Escape') newBar.classList.add('hidden');
+        });
+
+        const unsub = EventBus.on('vfs:change', () => {
+          populateFileSelect();
+        });
+
+        loadFile(currentFile);
+        updatePreviewBtn();
+
+        return {
+          onParams(p) {
+            if (p && p.filePath) loadFile(p.filePath);
+          },
+          onClose() { unsub(); }
+        };
+      }
+
+      /* ---------------------------------------------------------------------
+         APP 4: SYNTHWAVE (Web Audio Polyphonic Synthesizer + Oscilloscope)
+         --------------------------------------------------------------------- */
+      function mountSynthWave(win) {
+        let audioCtx = null;
+        let masterGain = null;
+        let filterNode = null;
+        let analyser = null;
+        let waveform = 'sawtooth';
+        let cutoffHz = 2800;
+        let rafId = null;
+        let isFocused = true;
+        const activeVoices = new Map(); // note -> { osc, gain }
+
+        const NOTES = [
+          { note: 'C4',  freq: 261.63, key: 'a', black: false },
+          { note: 'C#4', freq: 277.18, key: 'w', black: true  },
+          { note: 'D4',  freq: 293.66, key: 's', black: false },
+          { note: 'D#4', freq: 311.13, key: 'e', black: true  },
+          { note: 'E4',  freq: 329.63, key: 'd', black: false },
+          { note: 'F4',  freq: 349.23, key: 'f', black: false },
+          { note: 'F#4', freq: 369.99, key: 't', black: true  },
+          { note: 'G4',  freq: 392.00, key: 'g', black: false },
+          { note: 'G#4', freq: 415.30, key: 'y', black: true  },
+          { note: 'A4',  freq: 440.00, key: 'h', black: false },
+          { note: 'A#4', freq: 466.16, key: 'u', black: true  },
+          { note: 'B4',  freq: 493.88, key: 'j', black: false },
+          { note: 'C5',  freq: 523.25, key: 'k', black: false },
+          { note: 'C#5', freq: 554.37, key: 'o', black: true  },
+          { note: 'D5',  freq: 587.33, key: 'l', black: false },
+          { note: 'D#5', freq: 622.25, key: 'p', black: true  },
+          { note: 'E5',  freq: 659.25, key: ';', black: false }
+        ];
+
+        win.bodyEl.innerHTML = `
+          <div class="flex-1 flex flex-col min-h-0 bg-gradient-to-b from-[#0b0e1d] to-[#060812] p-3.5 gap-3 overflow-y-auto">
+            <!-- Oscilloscope Visualizer -->
+            <div class="relative h-28 sm:h-32 w-full rounded-xl bg-black/60 border border-indigo-400/25 overflow-hidden shrink-0">
+              <canvas class="synth-scope w-full h-full block"></canvas>
+              <div class="absolute top-2 left-3 text-[10px] font-mono uppercase tracking-wider text-indigo-300/80">Oscilloscope • Web Audio API</div>
+              <div class="synth-active-note absolute top-2 right-3 text-[10px] font-mono text-sky-300">Ready</div>
+            </div>
+
+            <!-- Controls Row -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
+              <!-- Waveform Selector -->
+              <div class="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Oscillator Waveform</div>
+                <div class="grid grid-cols-4 gap-1.5">
+                  ${['sine', 'sawtooth', 'square', 'triangle'].map(wf => `
+                    <button data-wf="${wf}" class="synth-wf-btn py-1.5 rounded-lg text-[11px] font-medium capitalize border transition-colors ${wf === waveform ? 'bg-indigo-500/35 border-indigo-400 text-white' : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'}">${wf}</button>
+                  `).join('')}
+                </div>
+              </div>
+
+              <!-- Low-Pass Filter Cutoff -->
+              <div class="p-2.5 rounded-xl bg-white/[0.03] border border-white/10 flex flex-col justify-between">
+                <div class="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold mb-1">
+                  <span class="text-slate-400">Low-Pass Filter Cutoff</span>
+                  <span class="synth-cutoff-val font-mono text-sky-300">${cutoffHz} Hz</span>
+                </div>
+                <input type="range" min="120" max="12000" step="10" value="${cutoffHz}" class="synth-cutoff w-full accent-sky-400 cursor-pointer" />
+                <div class="flex justify-between text-[9px] font-mono text-slate-500 mt-0.5">
+                  <span>120 Hz</span><span>Warm</span><span>12 kHz</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Polyphonic Piano Keyboard -->
+            <div class="flex-1 min-h-[125px] flex flex-col justify-end">
+              <div class="text-[10px] text-slate-400 mb-1.5 flex items-center justify-between">
+                <span>Click keys or use computer keyboard (<span class="font-mono text-sky-300">A–;</span> &amp; <span class="font-mono text-indigo-300">W E T Y U O P</span>)</span>
+              </div>
+              <div class="synth-keyboard relative w-full h-32 select-none flex"></div>
+            </div>
+          </div>
+        `;
+
+        const scopeCanvas = win.bodyEl.querySelector('.synth-scope');
+        const scopeCtx = scopeCanvas.getContext('2d');
+        const activeNoteLabel = win.bodyEl.querySelector('.synth-active-note');
+        const cutoffSlider = win.bodyEl.querySelector('.synth-cutoff');
+        const cutoffLabel = win.bodyEl.querySelector('.synth-cutoff-val');
+        const kbContainer = win.bodyEl.querySelector('.synth-keyboard');
+
+        // Build Piano UI
+        const whiteNotes = NOTES.filter(n => !n.black);
+        const whiteWidthPct = 100 / whiteNotes.length;
+        const keyEls = new Map();
+
+        whiteNotes.forEach((n) => {
+          const btn = document.createElement('button');
+          btn.className = 'piano-white relative flex-1 h-full flex flex-col items-center justify-end pb-2 text-slate-600 focus:outline-none';
+          btn.innerHTML = `<span class="text-[10px] font-bold font-mono uppercase text-slate-500">${n.key}</span><span class="text-[9px] text-slate-400">${n.note}</span>`;
+          kbContainer.appendChild(btn);
+          keyEls.set(n.note, btn);
+          bindKeyPointer(btn, n);
+        });
+
+        // Position black keys cleanly over white keys
+        let whiteIdx = -1;
+        NOTES.forEach((n) => {
+          if (!n.black) { whiteIdx++; return; }
+          const btn = document.createElement('button');
+          btn.className = 'piano-black absolute top-0 h-[62%] z-10 flex flex-col items-center justify-end pb-1.5 text-slate-300 focus:outline-none';
+          btn.style.width = `${whiteWidthPct * 0.62}%`;
+          btn.style.left = `${(whiteIdx + 1) * whiteWidthPct - (whiteWidthPct * 0.31)}%`;
+          btn.innerHTML = `<span class="text-[9px] font-bold font-mono uppercase text-indigo-200">${n.key}</span>`;
+          kbContainer.appendChild(btn);
+          keyEls.set(n.note, btn);
+          bindKeyPointer(btn, n);
+        });
+
+        function ensureAudio() {
+          if (!audioCtx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioCtx();
+            filterNode = audioCtx.createBiquadFilter();
+            filterNode.type = 'lowpass';
+            filterNode.frequency.value = cutoffHz;
+            filterNode.Q.value = 3.2;
+
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.28;
+
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 1024;
+
+            filterNode.connect(masterGain);
+            masterGain.connect(analyser);
+            analyser.connect(audioCtx.destination);
+          }
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+        }
+
+        function noteOn(noteObj) {
+          if (activeVoices.has(noteObj.note)) return;
+          ensureAudio();
+
+          const now = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = waveform;
+          osc.frequency.setValueAtTime(noteObj.freq, now);
+
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.exponentialRampToValueAtTime(0.45, now + 0.02);
+
+          osc.connect(gain);
+          gain.connect(filterNode);
+          osc.start(now);
+
+          activeVoices.set(noteObj.note, { osc, gain });
+          const el = keyEls.get(noteObj.note);
+          if (el) el.classList.add('active');
+          activeNoteLabel.textContent = Array.from(activeVoices.keys()).join(' + ');
+        }
+
+        function noteOff(noteObj) {
+          const voice = activeVoices.get(noteObj.note);
+          if (!voice || !audioCtx) return;
+          const now = audioCtx.currentTime;
+          voice.gain.gain.cancelScheduledValues(now);
+          voice.gain.gain.setValueAtTime(Math.max(0.001, voice.gain.gain.value), now);
+          voice.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+          voice.osc.stop(now + 0.16);
+          activeVoices.delete(noteObj.note);
+
+          const el = keyEls.get(noteObj.note);
+          if (el) el.classList.remove('active');
+          activeNoteLabel.textContent = activeVoices.size ? Array.from(activeVoices.keys()).join(' + ') : 'Ready';
+        }
+
+        function bindKeyPointer(btn, noteObj) {
+          btn.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            noteOn(noteObj);
+          });
+          const stop = () => noteOff(noteObj);
+          btn.addEventListener('pointerup', stop);
+          btn.addEventListener('pointerleave', stop);
+          btn.addEventListener('pointercancel', stop);
+        }
+
+        // Waveform buttons
+        win.bodyEl.querySelectorAll('.synth-wf-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            waveform = btn.dataset.wf;
+            win.bodyEl.querySelectorAll('.synth-wf-btn').forEach(b => {
+              const active = b.dataset.wf === waveform;
+              b.className = `synth-wf-btn py-1.5 rounded-lg text-[11px] font-medium capitalize border transition-colors ${active ? 'bg-indigo-500/35 border-indigo-400 text-white' : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'}`;
+            });
+          });
+        });
+
+        // Filter cutoff slider
+        cutoffSlider.addEventListener('input', () => {
+          cutoffHz = Number(cutoffSlider.value);
+          cutoffLabel.textContent = `${cutoffHz} Hz`;
+          if (filterNode && audioCtx) {
+            filterNode.frequency.setTargetAtTime(cutoffHz, audioCtx.currentTime, 0.02);
+          }
+        });
+
+        // Computer Keyboard Playback (only when SynthWave window is focused)
+        const onKeyDown = (e) => {
+          if (!isFocused || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+          if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+          const noteObj = NOTES.find(n => n.key === e.key.toLowerCase());
+          if (noteObj) {
+            e.preventDefault();
+            noteOn(noteObj);
+          }
+        };
+        const onKeyUp = (e) => {
+          const noteObj = NOTES.find(n => n.key === e.key.toLowerCase());
+          if (noteObj) noteOff(noteObj);
+        };
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
+
+        // Live Oscilloscope Canvas Loop
+        const resizeScope = () => {
+          const rect = scopeCanvas.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            scopeCanvas.width = rect.width * dpr;
+            scopeCanvas.height = rect.height * dpr;
+            scopeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
+        };
+        resizeScope();
+
+        const drawScope = () => {
+          const w = scopeCanvas.clientWidth;
+          const h = scopeCanvas.clientHeight;
+          scopeCtx.clearRect(0, 0, w, h);
+
+          // Grid
+          scopeCtx.strokeStyle = 'rgba(129, 140, 248, 0.12)';
+          scopeCtx.lineWidth = 1;
+          scopeCtx.beginPath();
+          scopeCtx.moveTo(0, h / 2);
+          scopeCtx.lineTo(w, h / 2);
+          scopeCtx.stroke();
+
+          scopeCtx.lineWidth = 2;
+          scopeCtx.strokeStyle = '#38bdf8';
+          scopeCtx.shadowColor = '#38bdf8';
+          scopeCtx.shadowBlur = 8;
+          scopeCtx.beginPath();
+
+          if (analyser) {
+            const buf = new Uint8Array(analyser.fftSize);
+            analyser.getByteTimeDomainData(buf);
+            const slice = w / buf.length;
+            for (let i = 0; i < buf.length; i++) {
+              const v = buf[i] / 128.0;
+              const y = (v * h) / 2;
+              if (i === 0) scopeCtx.moveTo(0, y);
+              else scopeCtx.lineTo(i * slice, y);
+            }
+          } else {
+            scopeCtx.moveTo(0, h / 2);
+            scopeCtx.lineTo(w, h / 2);
+          }
+          scopeCtx.stroke();
+          scopeCtx.shadowBlur = 0;
+
+          rafId = requestAnimationFrame(drawScope);
+        };
+        drawScope();
+
+        return {
+          onFocus() { isFocused = true; },
+          onBlur() { isFocused = false; },
+          onResize() { resizeScope(); },
+          onClose() {
+            cancelAnimationFrame(rafId);
+            window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keyup', onKeyUp);
+            for (const n of NOTES) noteOff(n);
+            if (audioCtx && audioCtx.state !== 'closed') {
+              audioCtx.close().catch(() => {});
+            }
+          }
+        };
+      }
+
+      /* ---------------------------------------------------------------------
+         APP 5: SYSMON (System Monitor + Live Process Killer)
+         --------------------------------------------------------------------- */
+      function mountSysMon(win) {
+        const HISTORY_LEN = 40;
+        const cpuData = Array(HISTORY_LEN).fill(18);
+        const memData = Array(HISTORY_LEN).fill(42);
+        const netData = Array(HISTORY_LEN).fill(12);
+
+        win.bodyEl.innerHTML = `
+          <div class="flex-1 flex flex-col min-h-0 bg-slate-950/60 p-3.5 gap-3 overflow-y-auto">
+            <!-- Telemetry Charts -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 shrink-0">
+              <div class="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[11px] font-semibold text-slate-300">CPU Load</span>
+                  <span class="sm-cpu-val font-mono text-xs text-sky-400">18%</span>
+                </div>
+                <canvas class="sm-cpu-canvas w-full h-20 block rounded-lg bg-black/40"></canvas>
+              </div>
+              <div class="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[11px] font-semibold text-slate-300">Memory</span>
+                  <span class="sm-mem-val font-mono text-xs text-indigo-400">3.4 / 8 GB</span>
+                </div>
+                <canvas class="sm-mem-canvas w-full h-20 block rounded-lg bg-black/40"></canvas>
+              </div>
+              <div class="p-2.5 rounded-xl bg-white/[0.03] border border-white/10">
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[11px] font-semibold text-slate-300">Network I/O</span>
+                  <span class="sm-net-val font-mono text-xs text-emerald-400">12 Mbps</span>
+                </div>
+                <canvas class="sm-net-canvas w-full h-20 block rounded-lg bg-black/40"></canvas>
+              </div>
+            </div>
+
+            <!-- Active Processes Table -->
+            <div class="flex-1 min-h-[160px] rounded-xl bg-white/[0.025] border border-white/10 flex flex-col overflow-hidden">
+              <div class="px-3 py-2 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+                <span class="text-xs font-semibold text-slate-200">Active Processes</span>
+                <span class="sm-proc-count text-[11px] font-mono text-slate-400">0 running</span>
+              </div>
+              <div class="flex-1 overflow-y-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="text-[10px] uppercase tracking-wider text-slate-400 bg-white/[0.02] sticky top-0">
+                    <tr>
+                      <th class="px-3 py-2">PID</th>
+                      <th class="px-3 py-2">Application</th>
+                      <th class="px-3 py-2 hidden sm:table-cell">State</th>
+                      <th class="px-3 py-2">CPU / RAM</th>
+                      <th class="px-3 py-2 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody class="sm-proc-body divide-y divide-white/5"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const cpuCanvas = win.bodyEl.querySelector('.sm-cpu-canvas');
+        const memCanvas = win.bodyEl.querySelector('.sm-mem-canvas');
+        const netCanvas = win.bodyEl.querySelector('.sm-net-canvas');
+        const cpuVal = win.bodyEl.querySelector('.sm-cpu-val');
+        const memVal = win.bodyEl.querySelector('.sm-mem-val');
+        const netVal = win.bodyEl.querySelector('.sm-net-val');
+        const procBody = win.bodyEl.querySelector('.sm-proc-body');
+        const procCount = win.bodyEl.querySelector('.sm-proc-count');
+
+        const drawChart = (canvas, data, strokeColor, fillColor) => {
+          const rect = canvas.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          if (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr)) {
+            canvas.width = Math.round(rect.width * dpr);
+            canvas.height = Math.round(rect.height * dpr);
+          }
+          const ctx = canvas.getContext('2d');
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          const w = rect.width;
+          const h = rect.height;
+
+          ctx.clearRect(0, 0, w, h);
+
+          // Subtle grid
+          ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+          ctx.lineWidth = 1;
+          for (let y = 1; y < 4; y++) {
+            ctx.beginPath();
+            ctx.moveTo(0, (h / 4) * y);
+            ctx.lineTo(w, (h / 4) * y);
+            ctx.stroke();
+          }
+
+          // Line & fill
+          const step = w / (data.length - 1);
+          ctx.beginPath();
+          data.forEach((v, i) => {
+            const x = i * step;
+            const y = h - (Math.max(0, Math.min(100, v)) / 100) * (h - 8) - 4;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.lineTo(w, h);
+          ctx.lineTo(0, h);
+          ctx.closePath();
+          const grad = ctx.createLinearGradient(0, 0, 0, h);
+          grad.addColorStop(0, fillColor);
+          grad.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = grad;
+          ctx.fill();
+        };
+
+        const renderProcesses = () => {
+          const wins = Array.from(WindowManager.windows.values());
+          procCount.textContent = `${wins.length} running`;
+          procBody.innerHTML = wins.map(w => {
+            const simCpu = (2.1 + ((w.pid * 7) % 14) + Math.random() * 1.5).toFixed(1);
+            const simRam = 38 + ((w.pid * 19) % 110);
+            const stateBadge = w.minimized
+              ? '<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px]">Minimized</span>'
+              : '<span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px]">Running</span>';
+            return `
+              <tr class="hover:bg-white/[0.03]">
+                <td class="px-3 py-2 font-mono text-slate-400">${w.pid}</td>
+                <td class="px-3 py-2 font-medium text-slate-100 truncate max-w-[160px]">${Utils.escapeHtml(w.title)}</td>
+                <td class="px-3 py-2 hidden sm:table-cell">${stateBadge}</td>
+                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${simCpu}% • ${simRam}MB</td>
+                <td class="px-3 py-2 text-right">
+                  <button data-kill="${w.id}" class="sm-kill-btn px-2 py-0.5 rounded-md bg-rose-500/20 hover:bg-rose-500/40 border border-rose-400/30 text-rose-300 text-[11px] font-medium transition-colors">Kill</button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+
+          procBody.querySelectorAll('.sm-kill-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const targetId = btn.dataset.kill;
+              WindowManager.close(targetId);
+              Utils.toast('Process terminated', 'info');
+            });
+          });
+        };
+
+        const tick = () => {
+          const loadBase = 10 + WindowManager.windows.size * 5;
+          const nextCpu = Math.max(5, Math.min(95, cpuData[cpuData.length - 1] + (Math.random() - 0.48) * 14 + (loadBase - cpuData[cpuData.length - 1]) * 0.2));
+          const nextMem = Math.max(20, Math.min(90, 32 + WindowManager.windows.size * 6 + (Math.random() - 0.5) * 4));
+          const nextNet = Math.max(2, Math.min(96, netData[netData.length - 1] * 0.65 + Math.random() * 35));
+
+          cpuData.push(nextCpu); cpuData.shift();
+          memData.push(nextMem); memData.shift();
+          netData.push(nextNet); netData.shift();
+
+          cpuVal.textContent = `${Math.round(nextCpu)}%`;
+          memVal.textContent = `${((nextMem / 100) * 8).toFixed(1)} / 8 GB`;
+          netVal.textContent = `${(nextNet * 1.4).toFixed(1)} Mbps`;
+
+          drawChart(cpuCanvas, cpuData, '#38bdf8', 'rgba(56, 189, 248, 0.28)');
+          drawChart(memCanvas, memData, '#818cf8', 'rgba(129, 140, 248, 0.28)');
+          drawChart(netCanvas, netData, '#34d399', 'rgba(52, 211, 153, 0.28)');
+        };
+
+        const intervalId = setInterval(tick, 900);
+        const unsub = EventBus.on('wm:change', renderProcesses);
+
+        // Initial paint
+        setTimeout(() => { tick(); renderProcesses(); }, 30);
+
+        return {
+          onResize() { tick(); },
+          onClose() {
+            clearInterval(intervalId);
+            unsub();
+          }
+        };
+      }
+
+      /* =====================================================================
+         SECTION 6: APP REGISTRY & DOCK CONTROLLER
+         ===================================================================== */
+      const AppRegistry = {
+        terminal: {
+          id: 'terminal',
+          title: 'Terminal',
+          defaultWidth: 660,
+          defaultHeight: 430,
+          minWidth: 340,
+          minHeight: 240,
+          singleton: false,
+          iconBg: 'from-emerald-500/30 to-teal-600/40 border-emerald-400/40',
+          iconSvg: `<span class="font-mono font-bold text-lg text-emerald-300">&gt;_</span>`,
+          mount: mountTerminal
+        },
+        files: {
+          id: 'files',
+          title: 'Files',
+          defaultWidth: 680,
+          defaultHeight: 450,
+          minWidth: 360,
+          minHeight: 280,
+          singleton: true,
+          iconBg: 'from-amber-400/30 to-orange-500/40 border-amber-400/40',
+          iconSvg: `<svg class="w-6 h-6 text-amber-300" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>`,
+          mount: mountFiles
+        },
+        codepad: {
+          id: 'codepad',
+          title: 'CodePad',
+          defaultWidth: 760,
+          defaultHeight: 490,
+          minWidth: 380,
+          minHeight: 300,
+          singleton: true,
+          iconBg: 'from-sky-500/30 to-blue-600/40 border-sky-400/40',
+          iconSvg: `<svg class="w-6 h-6 text-sky-300" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>`,
+          mount: mountCodePad
+        },
+        synthwave: {
+          id: 'synthwave',
+          title: 'SynthWave',
+          defaultWidth: 660,
+          defaultHeight: 470,
+          minWidth: 420,
+          minHeight: 380,
+          singleton: true,
+          iconBg: 'from-fuchsia-500/30 to-indigo-600/40 border-fuchsia-400/40',
+          iconSvg: `<svg class="w-6 h-6 text-fuchsia-300" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z"/></svg>`,
+          mount: mountSynthWave
+        },
+        sysmon: {
+          id: 'sysmon',
+          title: 'SysMon',
+          defaultWidth: 700,
+          defaultHeight: 480,
+          minWidth: 380,
+          minHeight: 340,
+          singleton: true,
+          iconBg: 'from-cyan-500/30 to-indigo-600/40 border-cyan-400/40',
+          iconSvg: `<svg class="w-6 h-6 text-cyan-300" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>`,
+          mount: mountSysMon
+        }
+      };
+
+      const Dock = {
+        el: null,
+        init() {
+          this.el = document.getElementById('dock');
+          this.render();
+          EventBus.on('wm:change', () => this.updateDots());
+        },
+        render() {
+          this.el.innerHTML = Object.values(AppRegistry).map(app => `
+            <button data-dock-app="${app.id}" class="dock-item relative flex flex-col items-center group focus:outline-none" aria-label="${app.title}">
+              <span class="dock-tooltip absolute -top-9 left-1/2 px-2.5 py-1 rounded-lg bg-slate-900/95 border border-white/15 text-[11px] font-medium text-slate-100 whitespace-nowrap shadow-xl">${app.title}</span>
+              <div class="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br ${app.iconBg} border flex items-center justify-center shadow-lg">
+                ${app.iconSvg}
+              </div>
+              <span data-dot="${app.id}" class="w-1.5 h-1.5 rounded-full mt-1 transition-all duration-200 bg-transparent"></span>
+            </button>
+          `).join('');
+
+          this.el.querySelectorAll('[data-dock-app]').forEach(btn => {
+            btn.addEventListener('click', () => WindowManager.handleDockClick(btn.dataset.dockApp));
+          });
+          this.updateDots();
+        },
+        updateDots() {
+          for (const appId of Object.keys(AppRegistry)) {
+            const dot = this.el.querySelector(`[data-dot="${appId}"]`);
+            if (!dot) continue;
+            const wins = Array.from(WindowManager.windows.values()).filter(w => w.appId === appId);
+            if (wins.length === 0) {
+              dot.className = 'w-1.5 h-1.5 rounded-full mt-1 transition-all duration-200 bg-transparent';
+            } else if (wins.some(w => !w.minimized)) {
+              dot.className = 'w-1.5 h-1.5 rounded-full mt-1 transition-all duration-200 bg-sky-400 shadow-[0_0_8px_#38bdf8]';
+            } else {
+              dot.className = 'w-1.5 h-1.5 rounded-full mt-1 transition-all duration-200 bg-amber-400/80';
+            }
+          }
+        }
+      };
+
+      /* =====================================================================
+         SECTION 7: SYSTEM BOOTSTRAP (Clock, Top Bar, Shortcuts, Splash)
+         ===================================================================== */
+      const OS_BOOT_TIME = Date.now();
+
+      function initShell() {
+        VFS.init();
+        WallpaperEngine.init();
+        WindowManager.init();
+        Dock.init();
+
+        // Live Clock
+        const clockEl = document.getElementById('system-clock');
+        const updateClock = () => {
+          const now = new Date();
+          clockEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        };
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        // Wallpaper Switcher Dropdown
+        const wpBtn = document.getElementById('wallpaper-btn');
+        const wpDropdown = document.getElementById('wallpaper-dropdown');
+        wpBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          wpDropdown.classList.toggle('hidden');
+        });
+        document.querySelectorAll('.wp-option').forEach(opt => {
+          opt.addEventListener('click', () => {
+            WallpaperEngine.setMode(opt.dataset.wp);
+            wpDropdown.classList.add('hidden');
+          });
+        });
+        document.addEventListener('click', () => wpDropdown.classList.add('hidden'));
+
+        // Aether Logo quick toast
+        document.getElementById('aether-menu-btn').addEventListener('click', () => {
+          Utils.toast('AetherOS v2.4 — All systems operational', 'info');
+        });
+
+        // Desktop Shortcuts
+        document.querySelectorAll('[data-desktop-open-file]').forEach(btn => {
+          btn.addEventListener('dblclick', () => {
+            WindowManager.openApp('codepad', { filePath: btn.dataset.desktopOpenFile });
+          });
+        });
+        document.querySelectorAll('[data-desktop-open-app]').forEach(btn => {
+          btn.addEventListener('dblclick', () => {
+            WindowManager.openApp(btn.dataset.desktopOpenApp);
+          });
+        });
+
+        // Clicking empty desktop blurs focused window label
+        document.getElementById('desktop').addEventListener('pointerdown', (e) => {
+          if (e.target.id === 'desktop' || e.target.id === 'desktop-icons') {
+            WindowManager.focus(null);
+          }
+        });
+
+        // 1-Second Animated Boot Splash dismissal
+        setTimeout(() => {
+          const splash = document.getElementById('boot-splash');
+          if (splash) {
+            splash.classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => splash.remove(), 520);
+          }
+          Utils.toast('Welcome to AetherOS — Launch apps from the Dock', 'info');
+        }, 1000);
+      }
+
+      window.addEventListener('DOMContentLoaded', initShell);
+    })();
+  </script>
+</body>
+</html>
