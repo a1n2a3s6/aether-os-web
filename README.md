@@ -37,5 +37,7 @@ Built by **Anas Alhelaly**
     <img src="https://img.shields.io/badge/Instagram-@anas.alhelaly-E4405F?style=for-the-badge&logo=instagram&logoColor=white" alt="Instagram" />
   </a>
 </p>
+
 ---
+
 *Part of my **365 Projects in 365 Days** GitHub challenge — Day 3.*
